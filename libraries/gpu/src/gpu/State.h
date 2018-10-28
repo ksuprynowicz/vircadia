@@ -246,7 +246,7 @@ public:
 
     struct Flags {
         Flags() :
-            frontFaceClockwise(false), depthClampEnable(false), scissorEnable(false), multisampleEnable(true),
+            frontFaceClockwise(false), depthClampEnable(false), scissorEnable(false), multisampleEnable(false),
             antialisedLineEnable(true), alphaToCoverageEnable(false), _spare1(0) {}
         bool frontFaceClockwise : 1;
         bool depthClampEnable : 1;
