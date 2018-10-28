@@ -18,7 +18,7 @@
 layout(location=RENDER_UTILS_ATTR_TEXCOORD01) in vec4 _texCoord01;
 #define _texCoord0 _texCoord01.xy
 
-layout(location=0) out vec4 _fragColor;
+OUTPUT(0, vec4, _fragColor);
 
 void main(void) {
     Material mat = getMaterial();

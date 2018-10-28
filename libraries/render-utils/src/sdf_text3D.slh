@@ -14,14 +14,14 @@
 <@if not SDF_TEXT3D_SLH@>
 <@def SDF_TEXT3D_SLH@>
 
-LAYOUT(binding=0) uniform sampler2D Font;
+TEXTURE(0, sampler2D, Font);
 
 struct TextParams {
     vec4 color;
     vec4 outline;
 };
 
-LAYOUT(binding=0) uniform textParamsBuffer {
+UNIFORM_BUFFER(0, textParamsBuffer) {
     TextParams params;
 };
 

@@ -13,20 +13,18 @@
 <@include DefaultMaterials.slh@>
 
 <@include ForwardGlobalLight.slh@>
-<$declareEvalGlobalLightingAlphaBlended()$>
-
+<@include sdf_text3D.slh@>
 <@include gpu/Transform.slh@>
-<$declareStandardCameraTransform()$>
-
 <@include render-utils/ShaderConstants.h@>
 
-<@include sdf_text3D.slh@>
+<$declareEvalGlobalLightingAlphaBlended()$>
+<$declareStandardCameraTransform()$>
 <$declareEvalSDFSuperSampled()$>
 
-layout(location=RENDER_UTILS_ATTR_POSITION_ES) in vec4 _positionES;
-layout(location=RENDER_UTILS_ATTR_NORMAL_WS) in vec3 _normalWS;
-layout(location=RENDER_UTILS_ATTR_COLOR) in vec4 _color;
-layout(location=RENDER_UTILS_ATTR_TEXCOORD01) in vec4 _texCoord01;
+INPUT(RENDER_UTILS_ATTR_POSITION_ES, vec4, _positionES);
+INPUT(RENDER_UTILS_ATTR_NORMAL_WS, vec3, _normalWS);
+INPUT(RENDER_UTILS_ATTR_COLOR, vec4, _color);
+INPUT(RENDER_UTILS_ATTR_TEXCOORD01, vec4, _texCoord01);
 #define _texCoord0 _texCoord01.xy
 #define _texCoord1 _texCoord01.zw
 

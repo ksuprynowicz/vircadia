@@ -11,7 +11,7 @@
 //
 
 <@include gpu/ShaderConstants.h@>
-layout(location=GPU_ATTR_POSITION) in vec4 inPosition;
+INPUT(GPU_ATTR_POSITION, vec4, inPosition);
 
 
 <@include gpu/Transform.slh@>
@@ -23,8 +23,8 @@ layout(location=GPU_ATTR_POSITION) in vec4 inPosition;
 
 <@include render-utils/ShaderConstants.h@>
 
-layout(location=RENDER_UTILS_ATTR_POSITION_WS) out vec4 _positionWS;
-layout(location=RENDER_UTILS_ATTR_TEXCOORD01) out vec4 _texCoord01;
+OUTPUT(RENDER_UTILS_ATTR_POSITION_WS, vec4, _positionWS);
+OUTPUT(RENDER_UTILS_ATTR_TEXCOORD01, vec4, _texCoord01);
 
 void main(void) {
     // standard transform
