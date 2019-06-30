@@ -12,10 +12,12 @@
 
 <@include DeferredBufferWrite.slh@>
 <@include render-utils/ShaderConstants.h@>
-<@include sdf_text3D.slh@>
 
-// the interpolated normal
+<@include sdf_text3D.slh@>
+<$declareEvalSDFSuperSampled()$>
+
 INPUT(RENDER_UTILS_ATTR_NORMAL_WS, vec3, _normalWS);
+INPUT(RENDER_UTILS_ATTR_COLOR, vec4, _color);
 INPUT(RENDER_UTILS_ATTR_TEXCOORD01, vec4, _texCoord01);
 #define _texCoord0 _texCoord01.xy
 #define _texCoord1 _texCoord01.zw

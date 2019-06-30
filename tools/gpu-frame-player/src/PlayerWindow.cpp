@@ -8,6 +8,7 @@
 
 #include "PlayerWindow.h"
 
+#include <QtCore/QTimer>
 #include <QtGui/QResizeEvent>
 #include <QtGui/QImageReader>
 #include <QtGui/QScreen>
@@ -113,7 +114,19 @@ void PlayerWindow::textureLoader(const std::string& filename, const gpu::Texture
     texture->assignStoredMip(0, image.byteCount(), image.constBits());
 }
 
+static const QString DEFAULT_TRACING_RULES =
+    "trace.*=true\n" \
+    "*.detail=false\n";
+
+
 void PlayerWindow::loadFrame(const QString& path) {
+    DependencyManager::get<tracing::Tracer>()->startTracing();
+    QLoggingCategory::setFilterRules(DEFAULT_TRACING_RULES);
+    QTimer::singleShot(8000, [] {
+        DependencyManager::get<tracing::Tracer>()->stopTracing();
+        DependencyManager::get<tracing::Tracer>()->serialize("D:/frames/trace-{DATE}_{TIME}.json.gz");
+    });
+
     auto frame = gpu::readFrame(path.toStdString(), _renderThread._externalTexture, &PlayerWindow::textureLoader);
     if (frame) {
         _renderThread.submitFrame(frame);

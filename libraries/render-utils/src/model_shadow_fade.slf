@@ -19,6 +19,8 @@
 <$declareFadeFragment()$>
 
 INPUT(RENDER_UTILS_ATTR_POSITION_WS, vec4, _positionWS);
+INPUT(RENDER_UTILS_ATTR_TEXCOORD01, vec4, _texCoord01);
+#define _texCoord0 _texCoord01.xy
 
 OUTPUT(0, vec4, _fragColor);
 

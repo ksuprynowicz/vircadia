@@ -220,6 +220,9 @@ void GLTextureTransferEngineDefault::updateMemoryPressure() {
     size_t unallocated = idealMemoryAllocation - totalVariableMemoryAllocation;
     float pressure = (float)totalVariableMemoryAllocation / (float)allowedMemoryAllocation;
 
+    PROFILE_COUNTER_IF_CHANGED(render_gpu_gl, "textureMemTarget", size_t, idealMemoryAllocation);
+    PROFILE_COUNTER_IF_CHANGED(render_gpu_gl, "textureMemActual", size_t, totalVariableMemoryAllocation);
+
     // If we're oversubscribed we need to demote textures IMMEDIATELY
     if (pressure > OVERSUBSCRIBED_PRESSURE_VALUE && canDemote) {
         auto overPressure = pressure - OVERSUBSCRIBED_PRESSURE_VALUE;
@@ -239,6 +242,8 @@ void GLTextureTransferEngineDefault::updateMemoryPressure() {
             newState = MemoryPressureState::Transfer;
         }
     }
+
+    PROFILE_COUNTER(render_gpu_gl, "textureTransfer", { { "state", static_cast<int>(_memoryPressureState) } });
 
     // If we've changed state then we have to populate the appropriate structure with the work to be done
     if (newState != _memoryPressureState) {
@@ -376,6 +381,7 @@ void GLTextureTransferEngineDefault::populateActiveBufferQueue() {
 }
 
 bool GLTextureTransferEngineDefault::processActiveBufferQueue() {
+    PROFILE_RANGE(render_gpu_gl, __FUNCTION__);
     ActiveTransferQueue activeBufferQueue;
     {
         Lock lock(_bufferMutex);

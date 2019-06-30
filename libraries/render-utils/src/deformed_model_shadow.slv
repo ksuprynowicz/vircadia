@@ -14,6 +14,7 @@
 INPUT(GPU_ATTR_POSITION, vec4, inPosition);
 INPUT(GPU_ATTR_SKIN_CLUSTER_INDEX, ivec4, inSkinClusterIndex);
 INPUT(GPU_ATTR_SKIN_CLUSTER_WEIGHT, vec4, inSkinClusterWeight);
+INPUT(GPU_ATTR_TEXCOORD0, vec4, inTexCoord0);
 
 <@include gpu/Transform.slh@>
 <$declareStandardTransform()$>
