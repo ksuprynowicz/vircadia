@@ -15,11 +15,11 @@
 <$declareDeferredFrameTransform()$>
 
 <@include graphics/Light.slh@>
-
-<@include LightingModel.slh@>
 <$declareLightBuffer()$>
 
-<@include Haze.slh@>
+<@include LightingModel.slh@>
+
+<@include graphics/Haze.slh@>
 
 TEXTURE(RENDER_UTILS_TEXTURE_HAZE_LINEAR_DEPTH, sampler2D, linearDepthMap);
 

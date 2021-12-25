@@ -55,18 +55,18 @@ TabBar {
                         font.pixelSize: 14
                         font.bold: true
                         anchors.top: parent.top
-                        anchors.topMargin: 28
+                        anchors.topMargin: 30
                         anchors.left: parent.left
-                        anchors.leftMargin: 28
+                        anchors.leftMargin: 30
                     }
 
                     Flow {
                         id: createEntitiesFlow
-                        spacing: 35
+                        spacing: 20
                         anchors.right: parent.right
-                        anchors.rightMargin: 55
+                        anchors.rightMargin: 30
                         anchors.left: parent.left
-                        anchors.leftMargin: 55
+                        anchors.leftMargin: 30
                         anchors.top: parent.top
                         anchors.topMargin: 70
 
@@ -186,9 +186,9 @@ TabBar {
                         color: hifi.buttons.black
                         colorScheme: hifi.colorSchemes.dark
                         anchors.right: parent.right
-                        anchors.rightMargin: 55
+                        anchors.rightMargin: 30
                         anchors.left: parent.left
-                        anchors.leftMargin: 55
+                        anchors.leftMargin: 30
                         anchors.top: createEntitiesFlow.bottom
                         anchors.topMargin: 35
                         onClicked: {
@@ -201,19 +201,38 @@ TabBar {
 
                     HifiControls.Button {
                         id: importButton
-                        text: "Import Entities (.json)"
+                        text: "Import Entities (.json) from a File"
                         color: hifi.buttons.black
                         colorScheme: hifi.colorSchemes.dark
-                        anchors.right: parent.right
-                        anchors.rightMargin: 55
+                        anchors.right: parent.horizontalCenter
+                        anchors.rightMargin: 10
                         anchors.left: parent.left
-                        anchors.leftMargin: 55
+                        anchors.leftMargin: 30
                         anchors.top: assetServerButton.bottom
                         anchors.topMargin: 20
                         onClicked: {
                             editRoot.sendToScript({
                                 method: "newEntityButtonClicked",
                                 params: { buttonName: "importEntitiesButton" }
+                            });
+                        }
+                    }
+                    
+                    HifiControls.Button {
+                        id: importButtonFromUrl
+                        text: "Import Entities (.json) from a URL"
+                        color: hifi.buttons.black
+                        colorScheme: hifi.colorSchemes.dark
+                        anchors.right: parent.right
+                        anchors.rightMargin: 30
+                        anchors.left: parent.horizontalCenter
+                        anchors.leftMargin: 10
+                        anchors.top: assetServerButton.bottom
+                        anchors.topMargin: 20
+                        onClicked: {
+                            editRoot.sendToScript({
+                                method: "newEntityButtonClicked",
+                                params: { buttonName: "importEntitiesFromUrlButton" }
                             });
                         }
                     }
@@ -247,7 +266,7 @@ TabBar {
         property Component visualItem: Component {
             WebView {
                 id: entityPropertiesWebView
-                url: Qt.resolvedURL("../entityProperties/html/entityProperties.html")
+                url: Qt.resolvedUrl("../entityProperties/html/entityProperties.html")
                 enabled: true
                 blurOnCtrlShift: false
             }
@@ -263,7 +282,7 @@ TabBar {
         property Component visualItem: Component {
             WebView {
                 id: gridControlsWebView
-                url: Qt.resolvedURL("../../html/gridControls.html")
+                url: Qt.resolvedUrl("../../html/gridControls.html")
                 enabled: true
                 blurOnCtrlShift: false
             }

@@ -543,26 +543,8 @@ void AvatarManager::removeDeadAvatarEntities(const SetOfEntities& deadEntities) 
     for (auto entity : deadEntities) {
         QUuid entityOwnerID = entity->getOwningAvatarID();
         AvatarSharedPointer avatar = getAvatarBySessionID(entityOwnerID);
-        const bool REQUIRES_REMOVAL_FROM_TREE = false;
         if (avatar) {
-            avatar->clearAvatarEntity(entity->getID(), REQUIRES_REMOVAL_FROM_TREE);
-        }
-        if (entityTree && entity->isMyAvatarEntity()) {
-            entityTree->withWriteLock([&] {
-                // We only need to delete the direct children (rather than the descendants) because
-                // when the child is deleted, it will take care of its own children.  If the child
-                // is also an avatar-entity, we'll end up back here.  If it's not, the entity-server
-                // will take care of it in the usual way.
-                entity->forEachChild([&](SpatiallyNestablePointer child) {
-                    EntityItemPointer childEntity = std::dynamic_pointer_cast<EntityItem>(child);
-                    if (childEntity) {
-                        entityTree->deleteEntity(childEntity->getID(), true, true);
-                        if (avatar) {
-                            avatar->clearAvatarEntity(childEntity->getID(), REQUIRES_REMOVAL_FROM_TREE);
-                        }
-                    }
-                });
-            });
+            avatar->clearAvatarEntityInternal(entity->getID());
         }
     }
 }
@@ -574,6 +556,7 @@ void AvatarManager::handleRemovedAvatar(const AvatarSharedPointer& removedAvatar
 
     avatar->die();
     queuePhysicsChange(avatar);
+    avatar->removeOrb();
 
     // remove this avatar's entities from the tree now, if we wait (as we did previously) for this Avatar's destructor
     // it might not fire until after we create a new instance for the same remote avatar, which creates a race
@@ -784,6 +767,7 @@ RayToAvatarIntersectionResult AvatarManager::findRayIntersectionVector(const Pic
         glm::vec3 rayDirectionInv = { rayDirection.x != 0.0f ? 1.0f / rayDirection.x : INFINITY,
                                       rayDirection.y != 0.0f ? 1.0f / rayDirection.y : INFINITY,
                                       rayDirection.z != 0.0f ? 1.0f / rayDirection.z : INFINITY };
+        glm::vec3 viewFrustumPos = BillboardModeHelpers::getPrimaryViewFrustumPosition();
 
         for (auto &hit : physicsResults) {
             auto avatarID = hit._intersectWithAvatar;
@@ -859,7 +843,8 @@ RayToAvatarIntersectionResult AvatarManager::findRayIntersectionVector(const Pic
                 BoxFace subMeshFace = BoxFace::UNKNOWN_FACE;
                 glm::vec3 subMeshSurfaceNormal;
                 QVariantMap subMeshExtraInfo;
-                if (avatar->getSkeletonModel()->findRayIntersectionAgainstSubMeshes(defaultFrameRayOrigin, defaultFrameRayDirection, subMeshDistance, subMeshFace, subMeshSurfaceNormal, subMeshExtraInfo, true, false)) {
+                if (avatar->getSkeletonModel()->findRayIntersectionAgainstSubMeshes(defaultFrameRayOrigin, defaultFrameRayDirection, viewFrustumPos, subMeshDistance,
+                                                                                    subMeshFace, subMeshSurfaceNormal, subMeshExtraInfo, true, false)) {
                     rayAvatarResult._distance = subMeshDistance;
                     rayAvatarResult._intersectionPoint = ray.origin + subMeshDistance * rayDirection;
                     rayAvatarResult._intersectionNormal = subMeshSurfaceNormal;
@@ -949,6 +934,7 @@ ParabolaToAvatarIntersectionResult AvatarManager::findParabolaIntersectionVector
         std::sort(sortedAvatars.begin(), sortedAvatars.end(), comparator);
     }
 
+    glm::vec3 viewFrustumPos = BillboardModeHelpers::getPrimaryViewFrustumPosition();
     for (auto it = sortedAvatars.begin(); it != sortedAvatars.end(); ++it) {
         const SortedAvatar& sortedAvatar = *it;
         // We can exit once avatarCapsuleDistance > bestDistance
@@ -961,7 +947,7 @@ ParabolaToAvatarIntersectionResult AvatarManager::findParabolaIntersectionVector
         glm::vec3 surfaceNormal;
         QVariantMap extraInfo;
         SkeletonModelPointer avatarModel = sortedAvatar.second->getSkeletonModel();
-        if (avatarModel->findParabolaIntersectionAgainstSubMeshes(pick.origin, pick.velocity, pick.acceleration, parabolicDistance, face, surfaceNormal, extraInfo, true)) {
+        if (avatarModel->findParabolaIntersectionAgainstSubMeshes(pick.origin, pick.velocity, pick.acceleration, viewFrustumPos, parabolicDistance, face, surfaceNormal, extraInfo, true)) {
             if (parabolicDistance < result.parabolicDistance) {
                 result.intersects = true;
                 result.avatarID = sortedAvatar.second->getID();
@@ -1022,7 +1008,7 @@ void AvatarManager::setAvatarSortCoefficient(const QString& name, const QScriptV
     }
 }
 
-/**jsdoc
+/*@jsdoc
  * PAL (People Access List) data for an avatar.
  * @typedef {object} AvatarManager.PalData
  * @property {Uuid} sessionUUID - The avatar's session ID. <code>""</code> if the avatar is your own.

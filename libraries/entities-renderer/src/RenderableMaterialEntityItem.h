@@ -13,7 +13,7 @@
 
 #include <MaterialEntityItem.h>
 
-#include <material-networking/MaterialCache.h>
+#include <procedural/ProceduralMaterialCache.h>
 
 class NetworkMaterial;
 
@@ -26,9 +26,10 @@ public:
     MaterialEntityRenderer(const EntityItemPointer& entity) : Parent(entity) {}
     ~MaterialEntityRenderer() { deleteMaterial(_parentID, _parentMaterialName); }
 
+    graphics::MaterialPointer getTopMaterial() override { return getMaterial(); }
+
 private:
-    virtual bool needsRenderUpdate() const override;
-    virtual bool needsRenderUpdateFromTypedEntity(const TypedEntityPointer& entity) const override;
+    virtual void doRenderUpdateSynchronousTyped(const ScenePointer& scene, Transaction& transaction, const TypedEntityPointer& entity) override;
     virtual void doRenderUpdateAsynchronousTyped(const TypedEntityPointer& entity) override;
     virtual void doRender(RenderArgs* args) override;
 
@@ -56,7 +57,7 @@ private:
     void setCurrentMaterialName(const std::string& currentMaterialName);
 
     void applyTextureTransform(std::shared_ptr<NetworkMaterial>& material);
-    void applyMaterial();
+    void applyMaterial(const TypedEntityPointer& entity);
     void deleteMaterial(const QUuid& oldParentID, const QString& oldParentMaterialName);
 
     NetworkMaterialResourcePointer _networkMaterial;

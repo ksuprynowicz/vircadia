@@ -17,7 +17,7 @@ GameplayObjects::GameplayObjects() {
 }
 
 bool GameplayObjects::addToGameplayObjects(const QUuid& avatarID) {
-    containsData = true;
+    _containsData = true;
     if (std::find(_avatarIDs.begin(), _avatarIDs.end(), avatarID) == _avatarIDs.end()) {
         _avatarIDs.push_back(avatarID);
     }
@@ -29,7 +29,7 @@ bool GameplayObjects::removeFromGameplayObjects(const QUuid& avatarID) {
 }
 
 bool GameplayObjects::addToGameplayObjects(const EntityItemID& entityID) {
-    containsData = true;
+    _containsData = true;
     if (std::find(_entityIDs.begin(), _entityIDs.end(), entityID) == _entityIDs.end()) {
         _entityIDs.push_back(entityID);
     }
@@ -43,8 +43,8 @@ bool GameplayObjects::removeFromGameplayObjects(const EntityItemID& entityID) {
 SelectionScriptingInterface::SelectionScriptingInterface() {
 }
 
-/**jsdoc
- * The type of a specific item in a selection list.
+/*@jsdoc
+ * <p>The type of a specific item in a selection list.</p>
  * <table>
  *   <thead>
  *     <tr><th>Value</th><th>Description</th></tr>
@@ -245,7 +245,7 @@ void SelectionScriptingInterface::printList(const QString& listName) {
     }
 }
 
-/**jsdoc
+/*@jsdoc
  * A selection list.
  * @typedef {object} Selection.SelectedItemsList
  * @property {Uuid[]} avatars - The IDs of the avatars in the selection list.
@@ -439,7 +439,7 @@ bool SelectionHighlightStyle::fromVariantMap(const QVariantMap& properties) {
     return true;
 }
 
-/**jsdoc
+/*@jsdoc
  * The highlighting style of a selection list.
  * @typedef {object} Selection.HighlightStyle
  * @property {Color} outlineUnoccludedColor=255,178,51 - Unoccluded outline color.

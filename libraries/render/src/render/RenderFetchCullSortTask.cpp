@@ -27,7 +27,7 @@ void RenderFetchCullSortTask::build(JobModel& task, const Varying& input, Varyin
     const auto fetchInput = FetchSpatialTree::Inputs(filter, glm::ivec2(0,0)).asVarying();
     const auto spatialSelection = task.addJob<FetchSpatialTree>("FetchSceneSelection", fetchInput);
     const auto cullInputs = CullSpatialSelection::Inputs(spatialSelection, spatialFilter).asVarying();
-    const auto culledSpatialSelection = task.addJob<CullSpatialSelection>("CullSceneSelection", cullInputs, cullFunctor, RenderDetails::ITEM);
+    const auto culledSpatialSelection = task.addJob<CullSpatialSelection>("CullSceneSelection", cullInputs, cullFunctor, false, RenderDetails::ITEM);
 
     // Layered objects are not culled
     const ItemFilter layeredFilter = ItemFilter::Builder::visibleWorldItems().withTagBits(tagBits, tagMask);
@@ -74,6 +74,7 @@ void RenderFetchCullSortTask::build(JobModel& task, const Varying& input, Varyin
     const auto filteredLayeredOpaque = task.addJob<FilterLayeredItems>("FilterLayeredOpaque", layeredOpaques, ItemKey::Layer::LAYER_1);
     const auto filteredLayeredTransparent = task.addJob<FilterLayeredItems>("FilterLayeredTransparent", layeredTransparents, ItemKey::Layer::LAYER_1);
 
+    task.addJob<ClearContainingZones>("ClearContainingZones");
 
     output = Output(BucketList{ opaques, transparents, lights, metas,
                     filteredLayeredOpaque.getN<FilterLayeredItems::Outputs>(0), filteredLayeredTransparent.getN<FilterLayeredItems::Outputs>(0),

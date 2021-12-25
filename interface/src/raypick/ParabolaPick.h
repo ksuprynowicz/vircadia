@@ -42,7 +42,7 @@ public:
     float parabolicDistance { FLT_MAX };
     bool intersects { false };
 
-    /**jsdoc
+    /*@jsdoc
      * An intersection result for a parabola pick.
      *
      * @typedef {object} ParabolaPickResult
@@ -92,6 +92,8 @@ class ParabolaPick : public Pick<PickParabola> {
 public:
     ParabolaPick(const glm::vec3& position, const glm::vec3& direction, float speed, const glm::vec3& acceleration, bool rotateAccelerationWithAvatar, bool rotateAccelerationWithParent, bool scaleWithParent, const PickFilter& filter, float maxDistance, bool enabled);
 
+    PickType getType() const override { return PickType::Parabola; }
+    
     PickParabola getMathematicalPick() const override;
 
     PickResultPointer getDefaultResult(const QVariantMap& pickVariant) const override { return std::make_shared<ParabolaPickResult>(pickVariant); }

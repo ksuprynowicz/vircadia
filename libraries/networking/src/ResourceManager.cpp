@@ -19,20 +19,26 @@
 #include <QFileInfo>
 
 #include <SharedUtil.h>
+#include <ThreadHelpers.h>
 
 #include "AssetResourceRequest.h"
 #include "FileResourceRequest.h"
 #include "HTTPResourceRequest.h"
 #include "NetworkAccessManager.h"
 #include "NetworkLogging.h"
+#include "NetworkingConstants.h"
 
 ResourceManager::ResourceManager(bool atpSupportEnabled) : _atpSupportEnabled(atpSupportEnabled) {
-    _thread.setObjectName("Resource Manager Thread");
+    QString name = "Resource Manager Thread";
+    _thread.setObjectName(name);
 
     if (_atpSupportEnabled) {
         auto assetClient = DependencyManager::set<AssetClient>();
         assetClient->moveToThread(&_thread);
-        QObject::connect(&_thread, &QThread::started, assetClient.data(), &AssetClient::initCaching);
+        QObject::connect(&_thread, &QThread::started, assetClient.data(), [assetClient, name] {
+            setThreadName(name.toStdString());
+            assetClient->initCaching();
+        });
     }
 
     _thread.start();
@@ -157,7 +163,7 @@ bool ResourceManager::resourceExists(const QUrl& url) {
         QNetworkRequest request{ url };
 
         request.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
-        request.setHeader(QNetworkRequest::UserAgentHeader, HIGH_FIDELITY_USER_AGENT);
+        request.setHeader(QNetworkRequest::UserAgentHeader, NetworkingConstants::VIRCADIA_USER_AGENT);
 
         auto reply = networkAccessManager.head(request);
 

@@ -4,6 +4,7 @@
 //
 //  Created by Stephen Birarda on 9/26/13.
 //  Copyright 2013 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -26,6 +27,8 @@
 #include <Assignment.h>
 #include <HTTPSConnection.h>
 #include <LimitedNodeList.h>
+#include <shared/WebRTC.h>
+#include <webrtc/WebRTCSignalingServer.h>
 
 #include "AssetsBackupHandler.h"
 #include "DomainGatekeeper.h"
@@ -36,11 +39,13 @@
 #include "DomainContentBackupManager.h"
 
 #include "PendingAssignedNodeData.h"
+#include "DomainServerExporter.h"
 
 #include <QLoggingCategory>
 
 Q_DECLARE_LOGGING_CATEGORY(domain_server)
 Q_DECLARE_LOGGING_CATEGORY(domain_server_ice)
+Q_DECLARE_LOGGING_CATEGORY(domain_server_auth)
 
 typedef QSharedPointer<Assignment> SharedAssignmentPointer;
 typedef QMultiHash<QUuid, WalletTransaction*> TransactionHash;
@@ -78,6 +83,8 @@ public:
 
     bool isAssetServerEnabled();
 
+    void screensharePresence(QString roomname, QUuid avatarID, int expiration_seconds = 0);
+
 public slots:
     /// Called by NodeList to inform us a node has been added
     void nodeAdded(SharedNodePointer node);
@@ -96,10 +103,11 @@ private slots:
     void processNodeDisconnectRequestPacket(QSharedPointer<ReceivedMessage> message);
     void processICEServerHeartbeatDenialPacket(QSharedPointer<ReceivedMessage> message);
     void processICEServerHeartbeatACK(QSharedPointer<ReceivedMessage> message);
+    void processAvatarZonePresencePacket(QSharedPointer<ReceivedMessage> packet);
 
     void handleDomainContentReplacementFromURLRequest(QSharedPointer<ReceivedMessage> message);
     void handleOctreeFileReplacementRequest(QSharedPointer<ReceivedMessage> message);
-    void handleOctreeFileReplacement(QByteArray octreeFile);
+    bool handleOctreeFileReplacement(QByteArray octreeFile, QString sourceFilename, QString name, QString username);
 
     void processOctreeDataRequestMessage(QSharedPointer<ReceivedMessage> message);
     void processOctreeDataPersistMessage(QSharedPointer<ReceivedMessage> message);
@@ -107,12 +115,12 @@ private slots:
     void setupPendingAssignmentCredits();
     void sendPendingTransactionsToServer();
 
-    void performIPAddressUpdate(const HifiSockAddr& newPublicSockAddr);
-    void sendHeartbeatToMetaverse() { sendHeartbeatToMetaverse(QString()); }
+    void performIPAddressPortUpdate(const SockAddr& newPublicSockAddr);
+    void sendHeartbeatToMetaverse() { sendHeartbeatToMetaverse(QString(), int()); }
     void sendHeartbeatToIceServer();
     void nodePingMonitor();
 
-    void handleConnectedNode(SharedNodePointer newNode, quint64 requestReceiveTime); 
+    void handleConnectedNode(SharedNodePointer newNode, quint64 requestReceiveTime);
     void handleTempDomainSuccess(QNetworkReply* requestReply);
     void handleTempDomainError(QNetworkReply* requestReply);
 
@@ -129,17 +137,35 @@ private slots:
     void handleSuccessfulICEServerAddressUpdate(QNetworkReply* requestReply);
     void handleFailedICEServerAddressUpdate(QNetworkReply* requestReply);
 
+    void handleSuccessfulScreensharePresence(QNetworkReply* requestReply, QJsonObject callbackData);
+    void handleFailedScreensharePresence(QNetworkReply* requestReply);
+
     void updateReplicatedNodes();
     void updateDownstreamNodes();
     void updateUpstreamNodes();
 
+    void initializeExporter();
+    void initializeMetadataExporter();
+
     void tokenGrantFinished();
     void profileRequestFinished();
+
+#if defined(WEBRTC_DATA_CHANNELS)
+    void forwardAssignmentClientSignalingMessageToUserClient(QSharedPointer<ReceivedMessage> message);
+#endif
+
+    void aboutToQuit();
 
 signals:
     void iceServerChanged();
     void userConnected();
     void userDisconnected();
+
+#if defined(WEBRTC_DATA_CHANNELS)
+    void webrtcSignalingMessageForDomainServer(const QJsonObject& json);
+    void webrtcSignalingMessageForUserClient(const QJsonObject& json);
+#endif
+
 
 private:
     QUuid getID();
@@ -164,7 +190,7 @@ private:
     void setupAutomaticNetworking();
     void setupICEHeartbeatForFullNetworking();
     void setupHeartbeatToMetaverse();
-    void sendHeartbeatToMetaverse(const QString& networkAddress);
+    void sendHeartbeatToMetaverse(const QString& networkAddress, const int port);
 
     void randomizeICEServerAddress(bool shouldTriggerHostLookup);
 
@@ -173,7 +199,7 @@ private:
     void handleKillNode(SharedNodePointer nodeToKill);
     void broadcastNodeDisconnect(const SharedNodePointer& disconnnectedNode);
 
-    void sendDomainListToNode(const SharedNodePointer& node, quint64 requestPacketReceiveTime, const HifiSockAddr& senderSockAddr, bool newConnection);
+    void sendDomainListToNode(const SharedNodePointer& node, quint64 requestPacketReceiveTime, const SockAddr& senderSockAddr, bool newConnection);
 
     bool isInInterestSet(const SharedNodePointer& nodeA, const SharedNodePointer& nodeB);
 
@@ -194,12 +220,12 @@ private:
     QUrl oauthRedirectURL();
     QUrl oauthAuthorizationURL(const QUuid& stateUUID = QUuid::createUuid());
 
-    bool isAuthenticatedRequest(HTTPConnection* connection, const QUrl& url);
+    std::pair<bool, QString>  isAuthenticatedRequest(HTTPConnection* connection);
 
     QNetworkReply* profileRequestGivenTokenReply(QNetworkReply* tokenReply);
     Headers setupCookieHeadersFromProfileReply(QNetworkReply* profileReply);
 
-    QJsonObject jsonForSocket(const HifiSockAddr& socket);
+    QJsonObject jsonForSocket(const SockAddr& socket);
     QJsonObject jsonObjectForNode(const SharedNodePointer& node);
 
     bool shouldReplicateNode(const Node& node);
@@ -215,19 +241,32 @@ private:
     bool processPendingContent(HTTPConnection* connection, QString itemName, QString filename, QByteArray dataChunk);
 
     bool forwardMetaverseAPIRequest(HTTPConnection* connection,
+                                    const QUrl& requestUrl,
                                     const QString& metaversePath,
-                                    const QString& requestSubobject,
+                                    const QString& requestSubobjectKey = "",
                                     std::initializer_list<QString> requiredData = { },
                                     std::initializer_list<QString> optionalData = { },
                                     bool requireAccessToken = true);
+
+#if defined(WEBRTC_DATA_CHANNELS)
+    void setUpWebRTCSignalingServer();
+    void routeWebRTCSignalingMessage(const QJsonObject& json);
+    void sendWebRTCSignalingMessageToAssignmentClient(const QJsonObject& json);
+#endif
+
+    QString operationToString(const QNetworkAccessManager::Operation &op);
 
     SubnetList _acSubnetWhitelist;
 
     std::vector<QString> _replicatedUsernames;
 
     DomainGatekeeper _gatekeeper;
+    DomainServerExporter _exporter;
 
     HTTPManager _httpManager;
+    HTTPManager* _httpExporterManager { nullptr };
+    HTTPManager* _httpMetadataExporterManager { nullptr };
+
     std::unique_ptr<HTTPSManager> _httpsManager;
 
     QHash<QUuid, SharedAssignmentPointer> _allAssignments;
@@ -236,6 +275,7 @@ private:
 
     bool _isUsingDTLS { false };
 
+    bool _oauthEnable { false };
     QUrl _oauthProviderURL;
     QString _oauthClientID;
     QString _oauthClientSecret;
@@ -250,7 +290,7 @@ private:
 
     DomainServerSettingsManager _settingsManager;
 
-    HifiSockAddr _iceServerSocket;
+    SockAddr _iceServerSocket;
     std::unique_ptr<NLPacket> _iceServerHeartbeatPacket;
 
     // These will be parented to this, they are not dangling
@@ -291,6 +331,10 @@ private:
     std::unordered_map<int, std::unique_ptr<QTemporaryFile>> _pendingContentFiles;
 
     QThread _assetClientThread;
+
+#if defined(WEBRTC_DATA_CHANNELS)
+    std::unique_ptr<WebRTCSignalingServer> _webrtcSignalingServer { nullptr };
+#endif
 };
 
 

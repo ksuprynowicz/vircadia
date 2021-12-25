@@ -17,7 +17,7 @@
 
 #include <EntityItemID.h>
 
-/**jsdoc
+/*@jsdoc
  * The <code>Clipboard</code> API enables you to export and import entities to and from JSON files.
  *
  * @namespace Clipboard
@@ -32,7 +32,7 @@ public:
     ClipboardScriptingInterface();
 
 public:
-    /**jsdoc
+    /*@jsdoc
      * Gets the extents of the entities held in the clipboard.
      * @function Clipboard.getContentsDimensions
      * @returns {Vec3} The extents of the content held in the clipboard.
@@ -46,14 +46,14 @@ public:
      */
     Q_INVOKABLE glm::vec3 getContentsDimensions();
 
-    /**jsdoc
+    /*@jsdoc
      * Gets the largest dimension of the extents of the entities held in the clipboard.
      * @function Clipboard.getClipboardContentsLargestDimension
      * @returns {number} The largest dimension of the extents of the content held in the clipboard.
      */
     Q_INVOKABLE float getClipboardContentsLargestDimension();
 
-    /**jsdoc
+    /*@jsdoc
      * Imports entities from a JSON file into the clipboard.
      * @function Clipboard.importEntities
      * @param {string} filename - The path and name of the JSON file to import.
@@ -73,7 +73,7 @@ public:
      */
     Q_INVOKABLE bool importEntities(const QString& filename, const bool isObservable = true, const qint64 callerId = -1);
 
-    /**jsdoc
+    /*@jsdoc
      * Exports specified entities to a JSON file.
      * @function Clipboard.exportEntities
      * @param {string} filename - Path and name of the file to export the entities to. Should have the extension ".json".
@@ -100,7 +100,7 @@ public:
      */
     Q_INVOKABLE bool exportEntities(const QString& filename, const QVector<QUuid>& entityIDs);
     
-    /**jsdoc
+    /*@jsdoc
     * Exports all entities that have centers within a cube to a JSON file.
     * @function Clipboard.exportEntities
     * @variation 0
@@ -113,14 +113,15 @@ public:
     */
     Q_INVOKABLE bool exportEntities(const QString& filename, float x, float y, float z, float scale);
 
-    /**jsdoc
+    /*@jsdoc
      * Pastes the contents of the clipboard into the domain.
      * @function Clipboard.pasteEntities
      * @param {Vec3} position -  The position to paste the clipboard contents at.
+     * @param {Entities.EntityHostType} [entityHostType="domain"] - The type of entities to create.
      * @returns {Uuid[]} The IDs of the new entities that were created as a result of the paste operation. If entities couldn't 
      *     be created then an empty array is returned.
      */
-    Q_INVOKABLE QVector<EntityItemID> pasteEntities(glm::vec3 position);
+    Q_INVOKABLE QVector<EntityItemID> pasteEntities(glm::vec3 position, const QString& entityHostType = "domain");
 };
 
 #endif // hifi_ClipboardScriptingInterface_h

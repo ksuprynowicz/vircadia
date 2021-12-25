@@ -1,3 +1,5 @@
+VideoDecodeStats
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
@@ -92,6 +94,7 @@ npm-debug.log
 
 # Resource binary file
 interface/compiledResources
+*.rcc
 
 # GPUCache
 interface/resources/GPUCache/*
@@ -108,3 +111,4 @@ tools/unity-avatar-exporter
 server-console/package-lock.json
 vcpkg/
 /tools/nitpick/compiledResources
+qt/

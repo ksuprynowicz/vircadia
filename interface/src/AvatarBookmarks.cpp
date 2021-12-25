@@ -4,6 +4,7 @@
 //
 //  Created by Triplelexx on 23/03/17.
 //  Copyright 2017 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -154,7 +155,7 @@ void AvatarBookmarks::deleteBookmark() {
 
 void AvatarBookmarks::updateAvatarEntities(const QVariantList &avatarEntities) {
     auto myAvatar = DependencyManager::get<AvatarManager>()->getMyAvatar();
-    auto currentAvatarEntities = myAvatar->getAvatarEntityData();
+    auto currentAvatarEntities = myAvatar->getAvatarEntityDataNonDefault();
     std::set<QUuid> newAvatarEntities;
 
     // Update or add all the new avatar entities
@@ -179,6 +180,18 @@ void AvatarBookmarks::updateAvatarEntities(const QVariantList &avatarEntities) {
     }
 }
 
+/*@jsdoc
+ * Details of an avatar bookmark.
+ * @typedef {object} AvatarBookmarks.BookmarkData
+ * @property {number} version - The version of the bookmark data format.
+ * @property {string} avatarUrl - The URL of the avatar model.
+ * @property {number} avatarScale - The target scale of the avatar.
+ * @property {Array<Object<"properties",Entities.EntityProperties>>} [avatarEntites] - The avatar entities included with the 
+ *     bookmark.
+ * @property {AttachmentData[]} [attachments] - The attachments included with the bookmark.
+ *     <p class="important">Deprecated: Use avatar entities instead.
+ */
+
 void AvatarBookmarks::loadBookmark(const QString& bookmarkName) {
     if (QThread::currentThread() != thread()) {
         BLOCKING_INVOKE_METHOD(this, "loadBookmark", Q_ARG(QString, bookmarkName));
@@ -200,22 +213,30 @@ void AvatarBookmarks::loadBookmark(const QString& bookmarkName) {
             auto myAvatar = DependencyManager::get<AvatarManager>()->getMyAvatar();
             auto treeRenderer = DependencyManager::get<EntityTreeRenderer>();
             EntityTreePointer entityTree = treeRenderer ? treeRenderer->getTree() : nullptr;
-            myAvatar->clearWornAvatarEntities();
+
+            // Once the skeleton URL has been loaded, add the Avatar Entities.
+            // We have to wait, because otherwise the avatar entities will try to get attached to the joints
+            // of the *current* avatar at first. But the current avatar might have a different joints scheme
+            // from the new avatar, and that would cause the entities to be attached to the wrong joints.
+
+            std::shared_ptr<QMetaObject::Connection> connection1 = std::make_shared<QMetaObject::Connection>();
+            *connection1 = connect(myAvatar.get(), &MyAvatar::onLoadComplete, [this, bookmark, bookmarkName, myAvatar, connection1]() {
+                qCDebug(interfaceapp) << "Finish loading avatar bookmark" << bookmarkName;
+                QObject::disconnect(*connection1);
+                myAvatar->clearWornAvatarEntities();
+                const float& qScale = bookmark.value(ENTRY_AVATAR_SCALE, 1.0f).toFloat();
+                myAvatar->setAvatarScale(qScale);
+                QList<QVariant> attachments = bookmark.value(ENTRY_AVATAR_ATTACHMENTS, QList<QVariant>()).toList();
+                myAvatar->setAttachmentsVariant(attachments);
+                QVariantList avatarEntities = bookmark.value(ENTRY_AVATAR_ENTITIES, QVariantList()).toList();
+                addAvatarEntities(avatarEntities);
+                emit bookmarkLoaded(bookmarkName);
+            });
+
+            qCDebug(interfaceapp) << "Start loading avatar bookmark" << bookmarkName;
+
             const QString& avatarUrl = bookmark.value(ENTRY_AVATAR_URL, "").toString();
             myAvatar->useFullAvatarURL(avatarUrl);
-            qCDebug(interfaceapp) << "Avatar On";
-            const QList<QVariant>& attachments = bookmark.value(ENTRY_AVATAR_ATTACHMENTS, QList<QVariant>()).toList();
-
-            qCDebug(interfaceapp) << "Attach " << attachments;
-            myAvatar->setAttachmentsVariant(attachments);
-
-            const float& qScale = bookmark.value(ENTRY_AVATAR_SCALE, 1.0f).toFloat();
-            myAvatar->setAvatarScale(qScale);
-
-            const QVariantList& avatarEntities = bookmark.value(ENTRY_AVATAR_ENTITIES, QVariantList()).toList();
-            addAvatarEntities(avatarEntities);
-
-            emit bookmarkLoaded(bookmarkName);
         }
     }
 }
@@ -262,12 +283,14 @@ QVariantMap AvatarBookmarks::getAvatarDataToBookmark() {
     auto myAvatar = DependencyManager::get<AvatarManager>()->getMyAvatar();
 
     const QString& avatarUrl = myAvatar->getSkeletonModelURL().toString();
+    const QString& avatarIcon = QString("");
     const QVariant& avatarScale = myAvatar->getAvatarScale();
 
     // If Avatar attachments ever change, this is where to update them, when saving remember to also append to AVATAR_BOOKMARK_VERSION
     QVariantMap bookmark;
     bookmark.insert(ENTRY_VERSION, AVATAR_BOOKMARK_VERSION);
     bookmark.insert(ENTRY_AVATAR_URL, avatarUrl);
+    bookmark.insert(ENTRY_AVATAR_ICON, avatarIcon);
     bookmark.insert(ENTRY_AVATAR_SCALE, avatarScale);
 
     QVariantList wearableEntities;
@@ -276,7 +299,7 @@ QVariantMap AvatarBookmarks::getAvatarDataToBookmark() {
 
     if (entityTree) {
         QScriptEngine scriptEngine;
-        auto avatarEntities = myAvatar->getAvatarEntityData();
+        auto avatarEntities = myAvatar->getAvatarEntityDataNonDefault();
         for (auto entityID : avatarEntities.keys()) {
             auto entity = entityTree->findEntityByID(entityID);
             if (!entity || !isWearableEntity(entity)) {

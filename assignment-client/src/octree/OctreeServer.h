@@ -17,6 +17,7 @@
 #include <QStringList>
 #include <QDateTime>
 #include <QtCore/QCoreApplication>
+#include <QtCore/QSharedPointer>
 
 #include <HTTPManager.h>
 
@@ -158,7 +159,9 @@ protected:
     void initHTTPManager(int port);
     void resetSendingStats();
     QString getUptime();
+    double getUptimeSeconds();
     QString getFileLoadTime();
+    double getFileLoadTimeSeconds();
     QString getConfiguration();
     QString getStatusLink();
 

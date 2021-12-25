@@ -21,21 +21,41 @@ ListModel {
 
         return marketItemUrl;
     }
-
-    function makeThumbnailUrl(avatarUrl) {
-        var marketId = extractMarketId(avatarUrl);
-        if (marketId === '') {
-            return '';
-        }
-
+	
+    function makeMarketThumbnailUrl(marketId) {
         var avatarThumbnailUrl = "https://hifi-metaverse.s3-us-west-1.amazonaws.com/marketplace/previews/%marketId%/large/hifi-mp-%marketId%.jpg"
             .split('%marketId%').join(marketId);
-
+            
         return avatarThumbnailUrl;
+    }
+	
+    function trimFileExtension(url) {
+        var trimmedUrl = url.substring(0, (url.indexOf("#") === -1) ? url.length : url.indexOf("#"));
+        trimmedUrl = trimmedUrl.substring(0, (trimmedUrl.indexOf("?") === -1) ? trimmedUrl.length : trimmedUrl.indexOf("?"));
+        trimmedUrl = trimmedUrl.substring(0, trimmedUrl.lastIndexOf("."));
+
+        return trimmedUrl;
+    }
+	
+    function makeThumbnailUrl(avatarUrl) {
+        var marketId = extractMarketId(avatarUrl);
+        if (marketId !== '') {
+            return makeMarketThumbnailUrl(marketId);
+        }
+        
+        var avatarThumbnailFileUrl = trimFileExtension(avatarUrl) + ".jpg";
+        
+        return avatarThumbnailFileUrl;
     }
 
     function makeAvatarObject(avatar, avatarName) {
-        var avatarThumbnailUrl = makeThumbnailUrl(avatar.avatarUrl);
+        var avatarThumbnailUrl;
+
+        if (!avatar.avatarIcon) {
+            avatarThumbnailUrl = makeThumbnailUrl(avatar.avatarUrl);
+        } else {
+            avatarThumbnailUrl = avatar.avatarIcon;
+        }
 
         return {
             'name' : avatarName,

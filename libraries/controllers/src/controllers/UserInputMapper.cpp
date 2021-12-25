@@ -256,6 +256,9 @@ void UserInputMapper::update(float deltaTime) {
     for (auto& channel : _actionStates) {
         channel = 0.0f;
     }
+    for (unsigned int i = 0; i < _actionStatesValid.size(); i++) {
+        _actionStatesValid[i] = true;
+    }
 
     for (auto& channel : _poseStates) {
         channel = Pose();
@@ -309,7 +312,10 @@ void UserInputMapper::update(float deltaTime) {
 Input::NamedVector UserInputMapper::getAvailableInputs(uint16 deviceID) const {
     Locker locker(_lock);
     auto iterator = _registeredDevices.find(deviceID);
-    return iterator->second->getAvailableInputs();
+    if (iterator != _registeredDevices.end()) {
+        return iterator->second->getAvailableInputs();
+    }
+    return Input::NamedVector();
 }
 
 QVector<Action> UserInputMapper::getAllActions() const {
@@ -359,19 +365,19 @@ Pose UserInputMapper::getPoseState(Action action) const {
 }
 
 
-bool UserInputMapper::triggerHapticPulse(float strength, float duration, controller::Hand hand) {
+bool UserInputMapper::triggerHapticPulse(float strength, float duration, uint16_t index) {
     Locker locker(_lock);
     bool toReturn = false;
     for (const auto& device : _registeredDevices) {
-        toReturn = toReturn || device.second->triggerHapticPulse(strength, duration, hand);
+        toReturn = device.second->triggerHapticPulse(strength, duration, index) || toReturn;
     }
     return toReturn;
 }
 
-bool UserInputMapper::triggerHapticPulseOnDevice(uint16 deviceID, float strength, float duration, controller::Hand hand) {
+bool UserInputMapper::triggerHapticPulseOnDevice(uint16 deviceID, float strength, float duration, uint16_t index) {
     Locker locker(_lock);
     if (_registeredDevices.find(deviceID) != _registeredDevices.end()) {
-        return _registeredDevices[deviceID]->triggerHapticPulse(strength, duration, hand);
+        return _registeredDevices[deviceID]->triggerHapticPulse(strength, duration, index);
     }
     return false;
 }
@@ -732,7 +738,7 @@ Mapping::Pointer UserInputMapper::newMapping(const QString& mappingName) {
 //        if (request->getResult() == ResourceRequest::Success) {
 //            result = parseMapping(QString(request->getData()));
 //        } else {
-//            qCWarning(controllers) << "Failed to load mapping url <" << jsonUrl << ">" << endl;
+//            qCWarning(controllers) << "Failed to load mapping url <" << jsonUrl << ">" << Qt::endl;
 //        }
 //        request->deleteLater();
 //    }
@@ -1171,13 +1177,13 @@ Mapping::Pointer UserInputMapper::parseMapping(const QString& json) {
     if (doc.isNull()) {
         qCDebug(controllers) << "Invalid JSON...\n";
         qCDebug(controllers) << error.errorString();
-        qCDebug(controllers) << "JSON was:\n" << json << endl;
+        qCDebug(controllers) << "JSON was:\n" << json << Qt::endl;
         return Mapping::Pointer();
     }
 
     if (!doc.isObject()) {
-        qWarning() << "Mapping json Document is not an object" << endl;
-        qCDebug(controllers) << "JSON was:\n" << json << endl;
+        qWarning() << "Mapping json Document is not an object" << Qt::endl;
+        qCDebug(controllers) << "JSON was:\n" << json << Qt::endl;
         return Mapping::Pointer();
     }
     return parseMapping(doc.object());
@@ -1232,6 +1238,44 @@ void UserInputMapper::disableMapping(const Mapping::Pointer& mapping) {
         debuggableRoutes = hasDebuggableRoute(_deviceRoutes) || hasDebuggableRoute(_standardRoutes);
     }
 }
+
+void UserInputMapper::setActionState(Action action, float value, bool valid) {
+    Locker locker(_lock);
+    _actionStates[toInt(action)] = value;
+    _actionStatesValid[toInt(action)] = valid;
+}
+
+void UserInputMapper::deltaActionState(Action action, float delta, bool valid) {
+    Locker locker(_lock);
+    _actionStates[toInt(action)] += delta;
+    bool wasValid = _actionStatesValid[toInt(action)];
+    _actionStatesValid[toInt(action)] = wasValid & valid;
+}
+
+float UserInputMapper::getActionState(Action action) const {
+    Locker locker(_lock);
+
+    int index = toInt(action);
+    if (index >= 0 && index < _actionStates.size()) {
+        return _actionStates[index];
+    }
+
+    qCDebug(controllers) << "UserInputMapper::getActionState invalid action:" << index;
+    return 0.0f;
+}
+
+bool UserInputMapper::getActionStateValid(Action action) const {
+    Locker locker(_lock);
+
+    int index = toInt(action);
+    if (index >= 0 && index < _actionStatesValid.size()) {
+        return _actionStatesValid[index];
+    }
+
+    qCDebug(controllers) << "UserInputMapper::getActionStateValid invalid action:" << index;
+    return false;
+}
+
 
 }
 

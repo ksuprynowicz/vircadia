@@ -24,10 +24,10 @@ int packetTypeMetaTypeId = qRegisterMetaType<PacketType>();
 
 PacketVersion versionForPacketType(PacketType packetType) {
     switch (packetType) {
-        case PacketType::StunResponse:
+        case PacketType::DomainConnectRequestPending: // keeping the old version to maintain the protocol hash
             return 17;
         case PacketType::DomainList:
-            return static_cast<PacketVersion>(DomainListVersion::HasConnectReason);
+            return static_cast<PacketVersion>(DomainListVersion::SocketTypes);
         case PacketType::EntityAdd:
         case PacketType::EntityClone:
         case PacketType::EntityEdit:
@@ -38,10 +38,10 @@ PacketVersion versionForPacketType(PacketType packetType) {
             return static_cast<PacketVersion>(EntityQueryPacketVersion::ConicalFrustums);
         case PacketType::AvatarIdentity:
         case PacketType::AvatarData:
-            return static_cast<PacketVersion>(AvatarMixerPacketVersion::SendVerificationFailed);
+            return static_cast<PacketVersion>(AvatarMixerPacketVersion::ARKitBlendshapes);
         case PacketType::BulkAvatarData:
         case PacketType::KillAvatar:
-            return static_cast<PacketVersion>(AvatarMixerPacketVersion::SendVerificationFailed);
+            return static_cast<PacketVersion>(AvatarMixerPacketVersion::ARKitBlendshapes);
         case PacketType::MessagesData:
             return static_cast<PacketVersion>(MessageDataVersion::TextOrBinaryData);
         // ICE packets
@@ -72,10 +72,12 @@ PacketVersion versionForPacketType(PacketType packetType) {
             return static_cast<PacketVersion>(DomainConnectionDeniedVersion::IncludesExtraInfo);
 
         case PacketType::DomainConnectRequest:
-            return static_cast<PacketVersion>(DomainConnectRequestVersion::HasCompressedSystemInfo);
+            return static_cast<PacketVersion>(DomainConnectRequestVersion::SocketTypes);
+        case PacketType::DomainListRequest:
+            return static_cast<PacketVersion>(DomainListRequestVersion::SocketTypes);
 
         case PacketType::DomainServerAddedNode:
-            return static_cast<PacketVersion>(DomainServerAddedNodeVersion::PermissionsGrid);
+            return static_cast<PacketVersion>(DomainServerAddedNodeVersion::SocketTypes);
 
         case PacketType::EntityScriptCallMethod:
             return static_cast<PacketVersion>(EntityScriptCallMethodVersion::ClientCallable);

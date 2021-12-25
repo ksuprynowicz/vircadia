@@ -199,7 +199,7 @@ void Stats::updateStats(bool force) {
     }
 
     // Second column: ping
-    STAT_UPDATE(audioPing, audioMixerNode ? audioMixerNode->getPingMs() : -1); 
+    STAT_UPDATE(audioPing, audioMixerNode ? audioMixerNode->getPingMs() : -1);
     const int mixerLossRate = (int)roundf(_audioStats->data()->getMixerStream()->lossRateWindow() * 100.0f);
     const int clientLossRate = (int)roundf(_audioStats->data()->getClientStream()->lossRateWindow() * 100.0f);
     const int largestLossRate = mixerLossRate > clientLossRate ? mixerLossRate : clientLossRate;
@@ -251,7 +251,7 @@ void Stats::updateStats(bool force) {
 
         SharedNodePointer audioMixerNode = nodeList->soloNodeOfType(NodeType::AudioMixer);
         auto audioClient = DependencyManager::get<AudioClient>().data();
-        if (audioMixerNode || force) {
+        if (audioMixerNode) {
             STAT_UPDATE(audioMixerKbps, (int)roundf(audioMixerNode->getInboundKbps() +
                                                     audioMixerNode->getOutboundKbps()));
             STAT_UPDATE(audioMixerPps, audioMixerNode->getInboundPPS() +
@@ -261,6 +261,7 @@ void Stats::updateStats(bool force) {
             STAT_UPDATE(audioMixerInPps, audioMixerNode->getInboundPPS());
             STAT_UPDATE(audioMixerOutKbps, (int)roundf(audioMixerNode->getOutboundKbps()));
             STAT_UPDATE(audioMixerOutPps, audioMixerNode->getOutboundPPS());
+            STAT_UPDATE(audioInboundPPS, (int)audioClient->getAudioInboundPPS());
             STAT_UPDATE(audioAudioInboundPPS, (int)audioClient->getAudioInboundPPS());
             STAT_UPDATE(audioSilentInboundPPS, (int)audioClient->getSilentInboundPPS());
             STAT_UPDATE(audioOutboundPPS, (int)audioClient->getAudioOutboundPPS());
@@ -274,6 +275,7 @@ void Stats::updateStats(bool force) {
             STAT_UPDATE(audioMixerOutPps, -1);
             STAT_UPDATE(audioOutboundPPS, -1);
             STAT_UPDATE(audioSilentOutboundPPS, -1);
+            STAT_UPDATE(audioInboundPPS, -1);
             STAT_UPDATE(audioAudioInboundPPS, -1);
             STAT_UPDATE(audioSilentInboundPPS, -1);
         }
@@ -456,6 +458,8 @@ void Stats::updateStats(bool force) {
         STAT_UPDATE(localLeaves, (int)OctreeElement::getLeafNodeCount());
         // LOD Details
         STAT_UPDATE(lodStatus, "You can see " + DependencyManager::get<LODManager>()->getLODFeedbackText());
+        STAT_UPDATE(numEntityUpdates, DependencyManager::get<EntityTreeRenderer>()->getPrevNumEntityUpdates());
+        STAT_UPDATE(numNeededEntityUpdates, DependencyManager::get<EntityTreeRenderer>()->getPrevTotalNeededEntityUpdates());
     }
 
 
@@ -480,7 +484,7 @@ void Stats::updateStats(bool force) {
         // First iterate all the records, and for the ones that should be included, insert them into
         // a new Map sorted by average time...
         bool onlyDisplayTopTen = Menu::getInstance()->isOptionChecked(MenuOption::OnlyDisplayTopTen);
-        QMap<float, QString> sortedRecords;
+        QMultiMap<float, QString> sortedRecords;
         auto allRecords = PerformanceTimer::getAllTimerRecords();
         QMapIterator<QString, PerformanceTimerRecord> i(allRecords);
 
@@ -488,7 +492,7 @@ void Stats::updateStats(bool force) {
             i.next();
             if (includeTimingRecord(i.key())) {
                 float averageTime = (float)i.value().getMovingAverage() / (float)USECS_PER_MSEC;
-                sortedRecords.insertMulti(averageTime, i.key());
+                sortedRecords.insert(averageTime, i.key());
             }
         }
 

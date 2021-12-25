@@ -20,6 +20,7 @@
 
 #include <NetworkLogging.h>
 #include <NetworkingConstants.h>
+#include <MetaverseAPI.h>
 #include <SharedLogging.h>
 #include <AddressManager.h>
 #include <DependencyManager.h>
@@ -58,7 +59,7 @@ ATPClientApp::ATPClientApp(int argc, char* argv[]) :
     parser.addOption(listenPortOption);
 
     if (!parser.parse(QCoreApplication::arguments())) {
-        qCritical() << parser.errorText() << endl;
+        qCritical() << parser.errorText() << Qt::endl;
         parser.showHelp();
         Q_UNREACHABLE();
     }
@@ -138,13 +139,13 @@ ATPClientApp::ATPClientApp(int argc, char* argv[]) :
     DependencyManager::registerInheritance<LimitedNodeList, NodeList>();
 
     DependencyManager::set<StatTracker>();
-    DependencyManager::set<AccountManager>([&]{ return QString(HIGH_FIDELITY_ATP_CLIENT_USER_AGENT); });
+    DependencyManager::set<AccountManager>(false, [&]{ return QString(HIGH_FIDELITY_ATP_CLIENT_USER_AGENT); });
     DependencyManager::set<AddressManager>();
     DependencyManager::set<NodeList>(NodeType::Agent, _listenPort);
 
     auto accountManager = DependencyManager::get<AccountManager>();
     accountManager->setIsAgent(true);
-    accountManager->setAuthURL(NetworkingConstants::METAVERSE_SERVER_URL());
+    accountManager->setAuthURL(MetaverseAPI::getCurrentMetaverseServerURL());
 
     auto nodeList = DependencyManager::get<NodeList>();
 

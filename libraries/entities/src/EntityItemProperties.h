@@ -4,6 +4,7 @@
 //
 //  Created by Brad Hefta-Gaub on 12/4/13.
 //  Copyright 2013 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -32,6 +33,7 @@
 #include <OctreeConstants.h>
 #include <ShapeInfo.h>
 #include <ColorUtils.h>
+#include "FontFamilies.h"
 
 #include "EntityItemID.h"
 #include "EntityItemPropertiesDefaults.h"
@@ -64,6 +66,8 @@
 #include "PrimitiveMode.h"
 #include "WebInputMode.h"
 #include "GizmoType.h"
+#include "TextEffect.h"
+#include "TextAlignment.h"
 
 const quint64 UNKNOWN_CREATED_TIME = 0;
 
@@ -116,9 +120,12 @@ class EntityItemProperties {
     friend class MaterialEntityItem;
 public:
     static bool blobToProperties(QScriptEngine& scriptEngine, const QByteArray& blob, EntityItemProperties& properties);
-    static void propertiesToBlob(QScriptEngine& scriptEngine, const QUuid& myAvatarID, const EntityItemProperties& properties, QByteArray& blob);
+    static void propertiesToBlob(QScriptEngine& scriptEngine, const QUuid& myAvatarID, const EntityItemProperties& properties, 
+        QByteArray& blob, bool allProperties = false);
 
     EntityItemProperties(EntityPropertyFlags desiredProperties = EntityPropertyFlags());
+    EntityItemProperties(const EntityItemProperties&) = default;
+
     virtual ~EntityItemProperties() = default;
 
     void merge(const EntityItemProperties& other);
@@ -190,6 +197,8 @@ public:
     DEFINE_PROPERTY_REF_ENUM(PROP_RENDER_LAYER, RenderLayer, renderLayer, RenderLayer, RenderLayer::WORLD);
     DEFINE_PROPERTY_REF_ENUM(PROP_PRIMITIVE_MODE, PrimitiveMode, primitiveMode, PrimitiveMode, PrimitiveMode::SOLID);
     DEFINE_PROPERTY(PROP_IGNORE_PICK_INTERSECTION, IgnorePickIntersection, ignorePickIntersection, bool, false);
+    DEFINE_PROPERTY_REF(PROP_RENDER_WITH_ZONES, RenderWithZones, renderWithZones, QVector<QUuid>, QVector<QUuid>());
+    DEFINE_PROPERTY_REF_ENUM(PROP_BILLBOARD_MODE, BillboardMode, billboardMode, BillboardMode, BillboardMode::NONE);
     DEFINE_PROPERTY_GROUP(Grab, grab, GrabPropertyGroup);
 
     // Physics
@@ -250,7 +259,6 @@ public:
     DEFINE_PROPERTY(PROP_ALPHA, Alpha, alpha, float, ENTITY_ITEM_DEFAULT_ALPHA);
     DEFINE_PROPERTY_GROUP(Pulse, pulse, PulsePropertyGroup);
     DEFINE_PROPERTY_REF(PROP_TEXTURES, Textures, textures, QString, "");
-    DEFINE_PROPERTY_REF_ENUM(PROP_BILLBOARD_MODE, BillboardMode, billboardMode, BillboardMode, BillboardMode::NONE);
 
     // Particles
     DEFINE_PROPERTY(PROP_MAX_PARTICLES, MaxParticles, maxParticles, quint32, particle::DEFAULT_MAX_PARTICLES);
@@ -294,6 +302,8 @@ public:
     DEFINE_PROPERTY_REF(PROP_JOINT_TRANSLATIONS, JointTranslations, jointTranslations, QVector<glm::vec3>, ENTITY_ITEM_DEFAULT_EMPTY_VEC3_QVEC);
     DEFINE_PROPERTY(PROP_RELAY_PARENT_JOINTS, RelayParentJoints, relayParentJoints, bool, ENTITY_ITEM_DEFAULT_RELAY_PARENT_JOINTS);
     DEFINE_PROPERTY_REF(PROP_GROUP_CULLED, GroupCulled, groupCulled, bool, false);
+    DEFINE_PROPERTY_REF(PROP_BLENDSHAPE_COEFFICIENTS, BlendshapeCoefficients, blendshapeCoefficients, QString, "");
+    DEFINE_PROPERTY_REF(PROP_USE_ORIGINAL_PIVOT, UseOriginalPivot, useOriginalPivot, bool, false);
     DEFINE_PROPERTY_GROUP(Animation, animation, AnimationPropertyGroup);
 
     // Light
@@ -314,6 +324,12 @@ public:
     DEFINE_PROPERTY_REF(PROP_RIGHT_MARGIN, RightMargin, rightMargin, float, TextEntityItem::DEFAULT_MARGIN);
     DEFINE_PROPERTY_REF(PROP_TOP_MARGIN, TopMargin, topMargin, float, TextEntityItem::DEFAULT_MARGIN);
     DEFINE_PROPERTY_REF(PROP_BOTTOM_MARGIN, BottomMargin, bottomMargin, float, TextEntityItem::DEFAULT_MARGIN);
+    DEFINE_PROPERTY_REF(PROP_UNLIT, Unlit, unlit, bool, false);
+    DEFINE_PROPERTY_REF(PROP_FONT, Font, font, QString, ROBOTO_FONT_FAMILY);
+    DEFINE_PROPERTY_REF_ENUM(PROP_TEXT_EFFECT, TextEffect, textEffect, TextEffect, TextEffect::NO_EFFECT);
+    DEFINE_PROPERTY_REF(PROP_TEXT_EFFECT_COLOR, TextEffectColor, textEffectColor, u8vec3Color, TextEntityItem::DEFAULT_TEXT_COLOR);
+    DEFINE_PROPERTY(PROP_TEXT_EFFECT_THICKNESS, TextEffectThickness, textEffectThickness, float, TextEntityItem::DEFAULT_TEXT_EFFECT_THICKNESS);
+    DEFINE_PROPERTY_REF_ENUM(PROP_TEXT_ALIGNMENT, Alignment, alignment, TextAlignment, TextAlignment::LEFT);
 
     // Zone
     DEFINE_PROPERTY_GROUP(KeyLight, keyLight, KeyLightPropertyGroup);
@@ -330,6 +346,7 @@ public:
     DEFINE_PROPERTY_REF_ENUM(PROP_HAZE_MODE, HazeMode, hazeMode, uint32_t, (uint32_t)COMPONENT_MODE_INHERIT);
     DEFINE_PROPERTY_REF_ENUM(PROP_BLOOM_MODE, BloomMode, bloomMode, uint32_t, (uint32_t)COMPONENT_MODE_INHERIT);
     DEFINE_PROPERTY_REF_ENUM(PROP_AVATAR_PRIORITY, AvatarPriority, avatarPriority, uint32_t, (uint32_t)COMPONENT_MODE_INHERIT);
+    DEFINE_PROPERTY_REF_ENUM(PROP_SCREENSHARE, Screenshare, screenshare, uint32_t, (uint32_t)COMPONENT_MODE_INHERIT);
 
     // Polyvox
     DEFINE_PROPERTY_REF(PROP_VOXEL_VOLUME_SIZE, VoxelVolumeSize, voxelVolumeSize, glm::vec3, PolyVoxEntityItem::DEFAULT_VOXEL_VOLUME_SIZE);
@@ -352,6 +369,8 @@ public:
     DEFINE_PROPERTY_REF(PROP_MAX_FPS, MaxFPS, maxFPS, uint8_t, WebEntityItem::DEFAULT_MAX_FPS);
     DEFINE_PROPERTY_REF_ENUM(PROP_INPUT_MODE, InputMode, inputMode, WebInputMode, WebInputMode::TOUCH);
     DEFINE_PROPERTY_REF(PROP_SHOW_KEYBOARD_FOCUS_HIGHLIGHT, ShowKeyboardFocusHighlight, showKeyboardFocusHighlight, bool, true);
+    DEFINE_PROPERTY_REF(PROP_WEB_USE_BACKGROUND, UseBackground, useBackground, bool, true);
+    DEFINE_PROPERTY_REF(PROP_USER_AGENT, UserAgent, userAgent, QString, WebEntityItem::DEFAULT_USER_AGENT);
 
     // Polyline
     DEFINE_PROPERTY_REF(PROP_LINE_POINTS, LinePoints, linePoints, QVector<glm::vec3>, ENTITY_ITEM_DEFAULT_EMPTY_VEC3_QVEC);
@@ -691,6 +710,8 @@ inline QDebug operator<<(QDebug debug, const EntityItemProperties& properties) {
     DEBUG_PROPERTY_IF_CHANGED(debug, properties, FilterURL, filterURL, "");
 
     DEBUG_PROPERTY_IF_CHANGED(debug, properties, AvatarPriority, avatarPriority, "");
+
+    DEBUG_PROPERTY_IF_CHANGED(debug, properties, Screenshare, screenshare, "");
 
     DEBUG_PROPERTY_IF_CHANGED(debug, properties, EntityHostTypeAsString, entityHostType, "");
     DEBUG_PROPERTY_IF_CHANGED(debug, properties, OwningAvatarID, owningAvatarID, "");

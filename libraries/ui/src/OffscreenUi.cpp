@@ -32,14 +32,21 @@
 #include <PointerManager.h>
 #include "MainWindow.h"
 
-/**jsdoc
+/*@jsdoc
+ * The <code>OffscreenFlags</code> API enables gamepad joystick navigation of UI.
+ *
+ * <p><em>This API currently has no effect and is not used.</em></p>
+ *
  * @namespace OffscreenFlags
  * 
  * @hifi-interface
  * @hifi-client-entity
  * @hifi-avatar
- * @property {boolean} navigationFocused
- * @property {boolean} navigationFocusDisabled
+ *
+ * @property {boolean} navigationFocused - <code>true</code> if UI has joystick navigation focus, <code>false</code> if it 
+ *     doesn't.
+ * @property {boolean} navigationFocusDisabled - <code>true</code> if UI joystick navigation focus is disabled, 
+ *     <code>false</code> if it isn't.
  */
 
 // Needs to match the constants in resources/qml/Global.js
@@ -71,13 +78,15 @@ public:
     
 signals:
 
-    /**jsdoc
+    /*@jsdoc
+     * Triggered when the value of the <code>navigationFocused</code> property changes.
      * @function OffscreenFlags.navigationFocusedChanged
      * @returns {Signal}
      */
     void navigationFocusedChanged();
 
-    /**jsdoc
+    /*@jsdoc
+     * Triggered when the value of the <code>navigationFocusDisabled</code> property changes.
      * @function OffscreenFlags.navigationFocusDisabledChanged
      * @returns {Signal}
      */
@@ -180,10 +189,12 @@ void OffscreenUi::show(const QUrl& url, const QString& name, std::function<void(
 }
 
 void OffscreenUi::hideDesktopWindows() {
-    if (QThread::currentThread() != thread()) {
-        BLOCKING_INVOKE_METHOD(this, "hideDesktopWindows");
+    if (_desktop) {
+        if (QThread::currentThread() != thread()) {
+            BLOCKING_INVOKE_METHOD(this, "hideDesktopWindows");
+        }
+        QMetaObject::invokeMethod(_desktop, "hideDesktopWindows");
     }
-    QMetaObject::invokeMethod(_desktop, "hideDesktopWindows");
 }
 
 void OffscreenUi::toggle(const QUrl& url, const QString& name, std::function<void(QQmlContext*, QObject*)> f) {
@@ -199,11 +210,14 @@ void OffscreenUi::toggle(const QUrl& url, const QString& name, std::function<voi
 }
 
 bool OffscreenUi::isPointOnDesktopWindow(QVariant point) {
-    QVariant result;
-    BLOCKING_INVOKE_METHOD(_desktop, "isPointOnWindow",
-                           Q_RETURN_ARG(QVariant, result),
-                           Q_ARG(QVariant, point));
-    return result.toBool();
+    if (_desktop) {
+        QVariant result;
+        BLOCKING_INVOKE_METHOD(_desktop, "isPointOnWindow",
+                               Q_RETURN_ARG(QVariant, result),
+                               Q_ARG(QVariant, point));
+        return result.toBool();
+    }
+    return false;
 }
 
 void OffscreenUi::hide(const QString& name) {
@@ -217,12 +231,14 @@ void OffscreenUi::hide(const QString& name) {
 }
 
 bool OffscreenUi::isVisible(const QString& name) {
-    QQuickItem* item = getRootItem()->findChild<QQuickItem*>(name);
-    if (item) {
-        return QQmlProperty(item, OFFSCREEN_VISIBILITY_PROPERTY).read().toBool();
-    } else {
-        return false;
+    auto rootItem = getRootItem();
+    if (rootItem) {
+        QQuickItem* item = rootItem->findChild<QQuickItem*>(name);
+        if (item) {
+            return QQmlProperty(item, OFFSCREEN_VISIBILITY_PROPERTY).read().toBool();
+        }
     }
+    return false;
 }
 
 class MessageBoxListener : public ModalDialogListener {
@@ -271,12 +287,11 @@ QQuickItem* OffscreenUi::createMessageBox(Icon icon, const QString& title, const
     bool invokeResult;
     auto tabletScriptingInterface = DependencyManager::get<TabletScriptingInterface>();
     TabletProxy* tablet = dynamic_cast<TabletProxy*>(tabletScriptingInterface->getTablet("com.highfidelity.interface.tablet.system"));
-    if (tablet->getToolbarMode()) {
+    if (tablet->getToolbarMode() && _desktop) {
        invokeResult =  QMetaObject::invokeMethod(_desktop, "messageBox",
                                   Q_RETURN_ARG(QVariant, result),
                                   Q_ARG(QVariant, QVariant::fromValue(map)));
-    } else {
-        QQuickItem* tabletRoot = tablet->getTabletRoot();
+    } else if (QQuickItem* tabletRoot = tablet->getTabletRoot()) {
         invokeResult =  QMetaObject::invokeMethod(tabletRoot, "messageBox",
                                                   Q_RETURN_ARG(QVariant, result),
                                                   Q_ARG(QVariant, QVariant::fromValue(map)));
@@ -524,21 +539,21 @@ ModalDialogListener* OffscreenUi::customInputDialogAsync(const Icon icon, const 
 }
 
 void OffscreenUi::togglePinned() {
-    bool invokeResult = QMetaObject::invokeMethod(_desktop, "togglePinned");
+    bool invokeResult = _desktop && QMetaObject::invokeMethod(_desktop, "togglePinned");
     if (!invokeResult) {
         qWarning() << "Failed to toggle window visibility";
     }
 }
 
 void OffscreenUi::setPinned(bool pinned) {
-    bool invokeResult = QMetaObject::invokeMethod(_desktop, "setPinned", Q_ARG(QVariant, pinned));
+    bool invokeResult = _desktop && QMetaObject::invokeMethod(_desktop, "setPinned", Q_ARG(QVariant, pinned));
     if (!invokeResult) {
         qWarning() << "Failed to set window visibility";
     }
 }
 
 void OffscreenUi::setConstrainToolbarToCenterX(bool constrained) {
-    bool invokeResult = QMetaObject::invokeMethod(_desktop, "setConstrainToolbarToCenterX", Q_ARG(QVariant, constrained));
+    bool invokeResult = _desktop && QMetaObject::invokeMethod(_desktop, "setConstrainToolbarToCenterX", Q_ARG(QVariant, constrained));
     if (!invokeResult) {
         qWarning() << "Failed to set toolbar constraint";
     }
@@ -566,17 +581,17 @@ QQuickItem* OffscreenUi::createInputDialog(const Icon icon, const QString& title
     TabletProxy* tablet = dynamic_cast<TabletProxy*>(tabletScriptingInterface->getTablet("com.highfidelity.interface.tablet.system"));
 
     bool invokeResult;
-    if (tablet->getToolbarMode()) {
+    if (tablet->getToolbarMode() && _desktop) {
         invokeResult = QMetaObject::invokeMethod(_desktop, "inputDialog",
                                                  Q_RETURN_ARG(QVariant, result),
                                                  Q_ARG(QVariant, QVariant::fromValue(map)));
-    } else {
-        QQuickItem* tabletRoot = tablet->getTabletRoot();
+    } else if (QQuickItem* tabletRoot = tablet->getTabletRoot()) {
         invokeResult = QMetaObject::invokeMethod(tabletRoot, "inputDialog",
                                                  Q_RETURN_ARG(QVariant, result),
                                                  Q_ARG(QVariant, QVariant::fromValue(map)));
         emit tabletScriptingInterface->tabletNotification();
     }
+
     if (!invokeResult) {
         qWarning() << "Failed to create message box";
         return nullptr;
@@ -594,12 +609,11 @@ QQuickItem* OffscreenUi::createCustomInputDialog(const Icon icon, const QString&
     TabletProxy* tablet = dynamic_cast<TabletProxy*>(tabletScriptingInterface->getTablet("com.highfidelity.interface.tablet.system"));
 
     bool invokeResult;
-    if (tablet->getToolbarMode()) {
+    if (tablet->getToolbarMode() && _desktop) {
         invokeResult = QMetaObject::invokeMethod(_desktop, "inputDialog",
                                                  Q_RETURN_ARG(QVariant, result),
                                                  Q_ARG(QVariant, QVariant::fromValue(map)));
-    } else {
-        QQuickItem* tabletRoot = tablet->getTabletRoot();
+    } else if (QQuickItem* tabletRoot = tablet->getTabletRoot()) {
         invokeResult = QMetaObject::invokeMethod(tabletRoot, "inputDialog",
                                                  Q_RETURN_ARG(QVariant, result),
                                                  Q_ARG(QVariant, QVariant::fromValue(map)));
@@ -709,7 +723,7 @@ QObject* OffscreenUi::getRootMenu() {
 }
 
 void OffscreenUi::unfocusWindows() {
-    bool invokeResult = QMetaObject::invokeMethod(_desktop, "unfocusWindows");
+    bool invokeResult = _desktop && QMetaObject::invokeMethod(_desktop, "unfocusWindows");
     Q_ASSERT(invokeResult);
 }
 
@@ -743,12 +757,11 @@ QString OffscreenUi::fileDialog(const QVariantMap& properties) {
     bool invokeResult;
     auto tabletScriptingInterface = DependencyManager::get<TabletScriptingInterface>();
     TabletProxy* tablet = dynamic_cast<TabletProxy*>(tabletScriptingInterface->getTablet("com.highfidelity.interface.tablet.system"));
-    if (tablet->getToolbarMode()) {
+    if (tablet->getToolbarMode() && _desktop) {
        invokeResult =  QMetaObject::invokeMethod(_desktop, "fileDialog",
                                   Q_RETURN_ARG(QVariant, buildDialogResult),
                                   Q_ARG(QVariant, QVariant::fromValue(properties)));
-    } else {
-        QQuickItem* tabletRoot = tablet->getTabletRoot();
+    } else if (QQuickItem* tabletRoot = tablet->getTabletRoot()) {
         invokeResult =  QMetaObject::invokeMethod(tabletRoot, "fileDialog",
                                   Q_RETURN_ARG(QVariant, buildDialogResult),
                                   Q_ARG(QVariant, QVariant::fromValue(properties)));
@@ -773,12 +786,11 @@ ModalDialogListener* OffscreenUi::fileDialogAsync(const QVariantMap& properties)
     bool invokeResult;
     auto tabletScriptingInterface = DependencyManager::get<TabletScriptingInterface>();
     TabletProxy* tablet = dynamic_cast<TabletProxy*>(tabletScriptingInterface->getTablet("com.highfidelity.interface.tablet.system"));
-    if (tablet->getToolbarMode()) {
+    if (tablet->getToolbarMode() && _desktop) {
        invokeResult =  QMetaObject::invokeMethod(_desktop, "fileDialog",
                                   Q_RETURN_ARG(QVariant, buildDialogResult),
                                   Q_ARG(QVariant, QVariant::fromValue(properties)));
-    } else {
-        QQuickItem* tabletRoot = tablet->getTabletRoot();
+    } else if (QQuickItem* tabletRoot = tablet->getTabletRoot()) {
         invokeResult =  QMetaObject::invokeMethod(tabletRoot, "fileDialog",
                                   Q_RETURN_ARG(QVariant, buildDialogResult),
                                   Q_ARG(QVariant, QVariant::fromValue(properties)));
@@ -994,12 +1006,11 @@ QString OffscreenUi::assetDialog(const QVariantMap& properties) {
     bool invokeResult;
     auto tabletScriptingInterface = DependencyManager::get<TabletScriptingInterface>();
     TabletProxy* tablet = dynamic_cast<TabletProxy*>(tabletScriptingInterface->getTablet("com.highfidelity.interface.tablet.system"));
-    if (tablet->getToolbarMode()) {
+    if (tablet->getToolbarMode() && _desktop) {
         invokeResult = QMetaObject::invokeMethod(_desktop, "assetDialog",
             Q_RETURN_ARG(QVariant, buildDialogResult),
             Q_ARG(QVariant, QVariant::fromValue(properties)));
-    } else {
-        QQuickItem* tabletRoot = tablet->getTabletRoot();
+    } else if (QQuickItem* tabletRoot = tablet->getTabletRoot()) {
         invokeResult = QMetaObject::invokeMethod(tabletRoot, "assetDialog",
             Q_RETURN_ARG(QVariant, buildDialogResult),
             Q_ARG(QVariant, QVariant::fromValue(properties)));
@@ -1025,12 +1036,11 @@ ModalDialogListener *OffscreenUi::assetDialogAsync(const QVariantMap& properties
     bool invokeResult;
     auto tabletScriptingInterface = DependencyManager::get<TabletScriptingInterface>();
     TabletProxy* tablet = dynamic_cast<TabletProxy*>(tabletScriptingInterface->getTablet("com.highfidelity.interface.tablet.system"));
-    if (tablet->getToolbarMode()) {
+    if (tablet->getToolbarMode() && _desktop) {
         invokeResult = QMetaObject::invokeMethod(_desktop, "assetDialog",
             Q_RETURN_ARG(QVariant, buildDialogResult),
             Q_ARG(QVariant, QVariant::fromValue(properties)));
-    } else {
-        QQuickItem* tabletRoot = tablet->getTabletRoot();
+    } else if (QQuickItem* tabletRoot = tablet->getTabletRoot()) {
         invokeResult = QMetaObject::invokeMethod(tabletRoot, "assetDialog",
             Q_RETURN_ARG(QVariant, buildDialogResult),
             Q_ARG(QVariant, QVariant::fromValue(properties)));

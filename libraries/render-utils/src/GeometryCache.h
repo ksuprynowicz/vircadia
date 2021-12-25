@@ -157,34 +157,24 @@ public:
 
     static void computeSimpleHullPointListForShape(int entityShape, const glm::vec3 &entityExtents, QVector<glm::vec3> &outPointList);
 
-    static uint8_t CUSTOM_PIPELINE_NUMBER;
-    static render::ShapePipelinePointer shapePipelineFactory(const render::ShapePlumber& plumber, const render::ShapeKey& key, gpu::Batch& batch);
-    static void registerShapePipeline() {
-        if (!CUSTOM_PIPELINE_NUMBER) {
-            CUSTOM_PIPELINE_NUMBER = render::ShapePipeline::registerCustomShapePipelineFactory(shapePipelineFactory);
-        }
-    }
-
     int allocateID() { return _nextID++; }
     void releaseID(int id);
     static const int UNKNOWN_ID;
 
     // Bind the pipeline and get the state to render static geometry
-    void bindSimpleProgram(gpu::Batch& batch, bool textured = false, bool transparent = false, bool culled = true,
-                                          bool unlit = false, bool depthBias = false, bool isAntiAliased = true, bool forward = false);
+    void bindSimpleProgram(gpu::Batch& batch, bool textured = false, bool transparent = false, bool unlit = false, bool depthBias = false,
+        bool isAntiAliased = true, bool forward = false, graphics::MaterialKey::CullFaceMode cullFaceMode = graphics::MaterialKey::CullFaceMode::CULL_BACK);
     // Get the pipeline to render static geometry
-    static gpu::PipelinePointer getSimplePipeline(bool textured = false, bool transparent = false, bool culled = true,
-                                          bool unlit = false, bool depthBias = false, bool fading = false, bool isAntiAliased = true, bool forward = false);
+    static gpu::PipelinePointer getSimplePipeline(bool textured = false, bool transparent = false, bool unlit = false, bool depthBias = false,
+        bool fading = false, bool isAntiAliased = true, bool forward = false, graphics::MaterialKey::CullFaceMode cullFaceMode = graphics::MaterialKey::CullFaceMode::CULL_BACK);
 
-    void bindWebBrowserProgram(gpu::Batch& batch, bool transparent = false);
-    gpu::PipelinePointer getWebBrowserProgram(bool transparent);
+    void bindWebBrowserProgram(gpu::Batch& batch, bool transparent, bool forward);
+    gpu::PipelinePointer getWebBrowserProgram(bool transparent, bool forward);
+    static std::map<std::pair<bool, bool>, gpu::PipelinePointer> _webPipelines;
 
     static void initializeShapePipelines();
-
-    render::ShapePipelinePointer getOpaqueShapePipeline() { assert(_simpleOpaquePipeline != nullptr); return _simpleOpaquePipeline; }
-    render::ShapePipelinePointer getTransparentShapePipeline() { assert(_simpleTransparentPipeline != nullptr); return _simpleTransparentPipeline; }
-    render::ShapePipelinePointer getForwardOpaqueShapePipeline() { assert(_forwardSimpleOpaquePipeline != nullptr); return _forwardSimpleOpaquePipeline; }
-    render::ShapePipelinePointer getForwardTransparentShapePipeline() { assert(_forwardSimpleTransparentPipeline != nullptr); return _forwardSimpleTransparentPipeline; }
+    render::ShapePipelinePointer getShapePipelinePointer(bool transparent, bool unlit, bool forward,
+        graphics::MaterialKey::CullFaceMode cullFaceMode = graphics::MaterialKey::CULL_BACK) { return _shapePipelines[std::make_tuple(transparent, unlit, forward, cullFaceMode)]; }
 
     // Static (instanced) geometry
     void renderShapeInstances(gpu::Batch& batch, Shape shape, size_t count, gpu::BufferPointer& colorBuffer);
@@ -195,17 +185,17 @@ public:
     void renderWireFadeShapeInstances(gpu::Batch& batch, Shape shape, size_t count, gpu::BufferPointer& colorBuffer,
         gpu::BufferPointer& fadeBuffer1, gpu::BufferPointer& fadeBuffer2, gpu::BufferPointer& fadeBuffer3);
 
-    void renderSolidShapeInstance(RenderArgs* args, gpu::Batch& batch, Shape shape, const glm::vec4& color = glm::vec4(1),
-                                    const render::ShapePipelinePointer& pipeline = _simpleOpaquePipeline);
+    void renderSolidShapeInstance(RenderArgs* args, gpu::Batch& batch, Shape shape, const glm::vec4& color,
+                                    const render::ShapePipelinePointer& pipeline);
     void renderSolidShapeInstance(RenderArgs* args, gpu::Batch& batch, Shape shape, const glm::vec3& color,
-                                    const render::ShapePipelinePointer& pipeline = _simpleOpaquePipeline) {
+                                    const render::ShapePipelinePointer& pipeline) {
         renderSolidShapeInstance(args, batch, shape, glm::vec4(color, 1.0f), pipeline);
     }
 
-    void renderWireShapeInstance(RenderArgs* args, gpu::Batch& batch, Shape shape, const glm::vec4& color = glm::vec4(1),
-        const render::ShapePipelinePointer& pipeline = _simpleOpaquePipeline);
+    void renderWireShapeInstance(RenderArgs* args, gpu::Batch& batch, Shape shape, const glm::vec4& color,
+        const render::ShapePipelinePointer& pipeline);
     void renderWireShapeInstance(RenderArgs* args, gpu::Batch& batch, Shape shape, const glm::vec3& color,
-        const render::ShapePipelinePointer& pipeline = _simpleOpaquePipeline) {
+        const render::ShapePipelinePointer& pipeline) {
         renderWireShapeInstance(args, batch, shape, glm::vec4(color, 1.0f), pipeline);
     }
 
@@ -217,33 +207,33 @@ public:
         const render::ShapePipelinePointer& pipeline);
 
     void renderSolidSphereInstance(RenderArgs* args, gpu::Batch& batch, const glm::vec4& color,
-                                    const render::ShapePipelinePointer& pipeline = _simpleOpaquePipeline);
+                                    const render::ShapePipelinePointer& pipeline);
     void renderSolidSphereInstance(RenderArgs* args, gpu::Batch& batch, const glm::vec3& color,
-                                    const render::ShapePipelinePointer& pipeline = _simpleOpaquePipeline) {
+                                    const render::ShapePipelinePointer& pipeline) {
         renderSolidSphereInstance(args, batch, glm::vec4(color, 1.0f), pipeline);
     }
-    
+
     void renderWireSphereInstance(RenderArgs* args, gpu::Batch& batch, const glm::vec4& color,
-                                    const render::ShapePipelinePointer& pipeline = _simpleWirePipeline);
+                                    const render::ShapePipelinePointer& pipeline);
     void renderWireSphereInstance(RenderArgs* args, gpu::Batch& batch, const glm::vec3& color,
-                                    const render::ShapePipelinePointer& pipeline = _simpleWirePipeline) {
+                                    const render::ShapePipelinePointer& pipeline) {
         renderWireSphereInstance(args, batch, glm::vec4(color, 1.0f), pipeline);
     }
-    
+
     void renderSolidCubeInstance(RenderArgs* args, gpu::Batch& batch, const glm::vec4& color,
-                                    const render::ShapePipelinePointer& pipeline = _simpleOpaquePipeline);
+                                    const render::ShapePipelinePointer& pipeline);
     void renderSolidCubeInstance(RenderArgs* args, gpu::Batch& batch, const glm::vec3& color,
-                                    const render::ShapePipelinePointer& pipeline = _simpleOpaquePipeline) {
+                                    const render::ShapePipelinePointer& pipeline) {
         renderSolidCubeInstance(args, batch, glm::vec4(color, 1.0f), pipeline);
     }
-    
+
     void renderWireCubeInstance(RenderArgs* args, gpu::Batch& batch, const glm::vec4& color,
-                                    const render::ShapePipelinePointer& pipeline = _simpleWirePipeline);
+                                    const render::ShapePipelinePointer& pipeline);
     void renderWireCubeInstance(RenderArgs* args, gpu::Batch& batch, const glm::vec3& color,
-                                    const render::ShapePipelinePointer& pipeline = _simpleWirePipeline) {
+                                    const render::ShapePipelinePointer& pipeline) {
         renderWireCubeInstance(args, batch, glm::vec4(color, 1.0f), pipeline);
     }
-    
+
     // Dynamic geometry
     void renderShape(gpu::Batch& batch, Shape shape);
     void renderWireShape(gpu::Batch& batch, Shape shape);
@@ -467,25 +457,13 @@ private:
     static gpu::ShaderPointer _forwardSimpleFadeShader;
     static gpu::ShaderPointer _forwardUnlitFadeShader;
 
-    static render::ShapePipelinePointer _simpleOpaquePipeline;
-    static render::ShapePipelinePointer _simpleTransparentPipeline;
-    static render::ShapePipelinePointer _forwardSimpleOpaquePipeline;
-    static render::ShapePipelinePointer _forwardSimpleTransparentPipeline;
-    static render::ShapePipelinePointer _simpleOpaqueFadePipeline;
-    static render::ShapePipelinePointer _simpleTransparentFadePipeline;
-    static render::ShapePipelinePointer _simpleWirePipeline;
-
+    static std::map<std::tuple<bool, bool, bool, graphics::MaterialKey::CullFaceMode>, render::ShapePipelinePointer> _shapePipelines;
     static QHash<SimpleProgramKey, gpu::PipelinePointer> _simplePrograms;
 
-    gpu::ShaderPointer _simpleOpaqueWebBrowserShader;
-    gpu::PipelinePointer _simpleOpaqueWebBrowserPipeline;
-    gpu::ShaderPointer _simpleTransparentWebBrowserShader;
-    gpu::PipelinePointer _simpleTransparentWebBrowserPipeline;
-
-    static render::ShapePipelinePointer getShapePipeline(bool textured = false, bool transparent = false, bool culled = true,
-        bool unlit = false, bool depthBias = false, bool forward = false);
-    static render::ShapePipelinePointer getFadingShapePipeline(bool textured = false, bool transparent = false, bool culled = true,
-        bool unlit = false, bool depthBias = false, bool forward = false);
+    static render::ShapePipelinePointer getShapePipeline(bool textured = false, bool transparent = false, bool unlit = false,
+        bool depthBias = false, bool forward = false, graphics::MaterialKey::CullFaceMode cullFaceMode = graphics::MaterialKey::CullFaceMode::CULL_BACK);
+    static render::ShapePipelinePointer getFadingShapePipeline(bool textured = false, bool transparent = false, bool unlit = false,
+        bool depthBias = false, bool forward = false, graphics::MaterialKey::CullFaceMode cullFaceMode = graphics::MaterialKey::CullFaceMode::CULL_BACK);
 };
 
 #endif // hifi_GeometryCache_h

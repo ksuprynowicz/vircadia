@@ -1,4 +1,4 @@
-<!-- Copyright 2016 High Fidelity, Inc. -->
+﻿<!-- Copyright 2016 High Fidelity, Inc. -->
 <html>
     <head>
         <meta charset="utf-8"/>
@@ -53,7 +53,7 @@
                 position: absolute;
                 top: 0; left: 0; bottom: 0; right: 0;
             }
-			
+
             #image_button {
                 position: absolute;
                 width: 463;
@@ -77,9 +77,9 @@
             var handControllerImageURL = null;
             var index = 0;
             var count = 3;
-			var handControllerRefURL = "https://docs.highfidelity.com/en/rc81/explore/get-started/vr-controls.html#vr-controls";
-			var keyboardRefURL = "https://docs.highfidelity.com/en/rc81/explore/get-started/desktop.html#movement-controls";
-			var gamepadRefURL = "https://docs.highfidelity.com/en/rc81/explore/get-started/vr-controls.html#gamepad";
+            var handControllerRefURL = "https://docs.vircadia.com/explore/get-started/vr-controls.html#vr-controls";
+            var keyboardRefURL = "https://docs.vircadia.com/explore/get-started/desktop.html#movement-controls";
+            var gamepadRefURL = "https://docs.vircadia.com/explore/get-started/vr-controls.html#gamepad";
 
             function showKbm() {
                 document.getElementById("main_image").setAttribute("src", "img/tablet-help-keyboard.jpg");
@@ -107,7 +107,7 @@
             }
 
             function chooseIcon() {
-                switch (index) 
+                switch (index)
                 {
                     case 0:
                         showGamepad();
@@ -189,7 +189,7 @@
             <a href="#" id="right_button" onmousedown="cycleRight()"></a>
 			<a href="#" id="image_button"></a>
         </div>
-        <a href="mailto:support@highfidelity.com" id="report_problem">Report Problem</a>
+        <a href="mailto:support@vircadia.com" id="report_problem">Report Problem</a>
     </body>
 
 </html>

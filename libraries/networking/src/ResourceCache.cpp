@@ -16,8 +16,9 @@
 #include <cmath>
 #include <assert.h>
 
-#include <QThread>
-#include <QTimer>
+#include <QtCore/QMetaMethod>
+#include <QtCore/QThread>
+#include <QtCore/QTimer>
 
 #include <SharedUtil.h>
 #include <shared/QtHelpers.h>
@@ -148,6 +149,8 @@ void ResourceCacheSharedItems::clear() {
 
 ScriptableResourceCache::ScriptableResourceCache(QSharedPointer<ResourceCache> resourceCache) {
     _resourceCache = resourceCache;
+    connect(&(*_resourceCache), &ResourceCache::dirty,
+        this, &ScriptableResourceCache::dirty, Qt::DirectConnection);
 }
 
 QVariantList ScriptableResourceCache::getResourceList() {
@@ -298,7 +301,7 @@ void ResourceCache::refreshAll() {
     clearUnusedResources();
     resetUnusedResourceCounter();
 
-    QHash<QUrl, QHash<size_t, QWeakPointer<Resource>>> allResources;
+    QHash<QUrl, QMultiHash<size_t, QWeakPointer<Resource>>> allResources;
     {
         QReadLocker locker(&_resourcesLock);
         allResources = _resources;
@@ -323,7 +326,11 @@ QVariantList ResourceCache::getResourceList() {
         BLOCKING_INVOKE_METHOD(this, "getResourceList",
             Q_RETURN_ARG(QVariantList, list));
     } else {
-        auto resources = _resources.uniqueKeys();
+        QList<QUrl> resources;
+        {
+            QReadLocker locker(&_resourcesLock);
+            resources = _resources.keys();
+        }
         list.reserve(resources.size());
         for (auto& resource : resources) {
             list << resource;
@@ -332,7 +339,7 @@ QVariantList ResourceCache::getResourceList() {
 
     return list;
 }
- 
+
 void ResourceCache::setRequestLimit(uint32_t limit) {
     auto sharedItems = DependencyManager::get<ResourceCacheSharedItems>();
     sharedItems->setRequestLimit(limit);
@@ -411,7 +418,7 @@ void ResourceCache::addUnusedResource(const QSharedPointer<Resource>& resource) 
         return;
     }
     reserveUnusedResource(resource->getBytes());
-    
+
     resource->setLRUKey(++_lastLRUKey);
 
     {
@@ -440,7 +447,7 @@ void ResourceCache::reserveUnusedResource(qint64 resourceSize) {
            _unusedResourcesSize + resourceSize > _unusedResourcesMaxSize) {
         // unload the oldest resource
         QMap<int, QSharedPointer<Resource> >::iterator it = _unusedResources.begin();
-        
+
         it.value()->setCache(nullptr);
         auto size = it.value()->getBytes();
 
@@ -510,7 +517,7 @@ void ResourceCache::updateTotalSize(const qint64& deltaSize) {
 
     emit dirty();
 }
- 
+
 QList<QSharedPointer<Resource>> ResourceCache::getLoadingRequests() {
     return DependencyManager::get<ResourceCacheSharedItems>()->getLoadingRequests();
 }
@@ -647,7 +654,7 @@ void Resource::refresh() {
         _request = nullptr;
         ResourceCache::requestCompleted(_self);
     }
-    
+
     _activeUrl = _url;
     init();
     ensureLoading();
@@ -661,7 +668,7 @@ void Resource::allReferencesCleared() {
     }
 
     if (_cache && isCacheable()) {
-        // create and reinsert new shared pointer 
+        // create and reinsert new shared pointer
         QSharedPointer<Resource> self(this, &Resource::deleter);
         setSelf(self);
         reinsert();
@@ -686,10 +693,10 @@ void Resource::init(bool resetLoaded) {
         _loaded = false;
     }
     _attempts = 0;
-    
+
     if (_url.isEmpty()) {
         _startedLoading = _loaded = true;
-        
+
     } else if (!(_url.isValid())) {
         _startedLoading = _failedToLoad = true;
     }
@@ -787,8 +794,6 @@ void Resource::handleReplyFinished() {
         { "size_mb", _bytesTotal / 1000000.0 }
     });
 
-    setSize(_bytesTotal);
-
     // Make sure we keep the Resource alive here
     auto self = _self.lock();
     ResourceCache::requestCompleted(_self);
@@ -802,12 +807,20 @@ void Resource::handleReplyFinished() {
         }
 
         auto data = _request->getData();
+        if (_request->getUrl().scheme() == "qrc") {
+            // For resources under qrc://, there's no actual download being done, so
+            // handleDownloadProgress never gets called. We get the full length here
+            // at the end.
+            _bytesTotal = data.length();
+        }
+
+        setSize(_bytesTotal);
         emit loaded(data);
         downloadFinished(data);
     } else {
         handleFailedRequest(result);
     }
-    
+
     _request->disconnect(this);
     _request->deleteLater();
     _request = nullptr;
@@ -842,7 +855,8 @@ bool Resource::handleFailedRequest(ResourceRequest::Result result) {
         // FALLTHRU
         default: {
             _attemptsRemaining = 0;
-            qCDebug(networking) << "Error loading, attempt:" << _attempts << "attemptsRemaining:" << _attemptsRemaining;
+            QMetaEnum metaEnum = QMetaEnum::fromType<ResourceRequest::Result>();
+            qCDebug(networking) << "Error loading:" << metaEnum.valueToKey(result) << "resource:" << _url.toString();
             auto error = (result == ResourceRequest::Timeout) ? QNetworkReply::TimeoutError
                                                               : QNetworkReply::UnknownNetworkError;
             emit failed(error);

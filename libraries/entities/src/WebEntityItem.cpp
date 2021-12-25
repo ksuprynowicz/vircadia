@@ -1,6 +1,7 @@
 //
 //  Created by Bradley Austin Davis on 2015/05/12
 //  Copyright 2013 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -15,22 +16,28 @@
 
 #include <ByteCountCoding.h>
 #include <GeometryUtil.h>
+#include <shared/LocalFileAccessGate.h>
+#include <NetworkingConstants.h>
 
 #include "EntitiesLogging.h"
 #include "EntityItemProperties.h"
 #include "EntityTree.h"
 #include "EntityTreeElement.h"
 
-const QString WebEntityItem::DEFAULT_SOURCE_URL = "http://www.google.com";
+const QString WebEntityItem::DEFAULT_SOURCE_URL = NetworkingConstants::WEB_ENTITY_DEFAULT_SOURCE_URL;
+const QString WebEntityItem::DEFAULT_USER_AGENT = NetworkingConstants::WEB_ENTITY_DEFAULT_USER_AGENT;
 const uint8_t WebEntityItem::DEFAULT_MAX_FPS = 10;
 
 EntityItemPointer WebEntityItem::factory(const EntityItemID& entityID, const EntityItemProperties& properties) {
-    EntityItemPointer entity(new WebEntityItem(entityID), [](EntityItem* ptr) { ptr->deleteLater(); });
+    std::shared_ptr<WebEntityItem> entity(new WebEntityItem(entityID), [](WebEntityItem* ptr) { ptr->deleteLater(); });
     entity->setProperties(properties);
     return entity;
 }
 
 WebEntityItem::WebEntityItem(const EntityItemID& entityItemID) : EntityItem(entityItemID) {
+    // this initialzation of localSafeContext is reading a thread-local variable and that is depends on
+    // the ctor being executed on the same thread as the script, assuming it's being create by a script
+    _localSafeContext = hifi::scripting::isLocalAccessSafeThread();
     _type = EntityTypes::Web;
 }
 
@@ -48,7 +55,6 @@ EntityItemProperties WebEntityItem::getProperties(const EntityPropertyFlags& des
     withReadLock([&] {
         _pulseProperties.getProperties(properties);
     });
-    COPY_ENTITY_PROPERTY_TO_PROPERTIES(billboardMode, getBillboardMode);
 
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(sourceUrl, getSourceUrl);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(dpi, getDPI);
@@ -56,20 +62,21 @@ EntityItemProperties WebEntityItem::getProperties(const EntityPropertyFlags& des
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(maxFPS, getMaxFPS);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(inputMode, getInputMode);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(showKeyboardFocusHighlight, getShowKeyboardFocusHighlight);
+    COPY_ENTITY_PROPERTY_TO_PROPERTIES(useBackground, getUseBackground);
+    COPY_ENTITY_PROPERTY_TO_PROPERTIES(userAgent, getUserAgent);
     return properties;
 }
 
-bool WebEntityItem::setProperties(const EntityItemProperties& properties) {
+bool WebEntityItem::setSubClassProperties(const EntityItemProperties& properties) {
     bool somethingChanged = false;
-    somethingChanged = EntityItem::setProperties(properties); // set the properties in our base class
 
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(color, setColor);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(alpha, setAlpha);
     withWriteLock([&] {
         bool pulsePropertiesChanged = _pulseProperties.setProperties(properties);
         somethingChanged |= pulsePropertiesChanged;
+        _needsRenderUpdate |= pulsePropertiesChanged;
     });
-    SET_ENTITY_PROPERTY_FROM_PROPERTIES(billboardMode, setBillboardMode);
 
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(sourceUrl, setSourceUrl);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(dpi, setDPI);
@@ -77,17 +84,8 @@ bool WebEntityItem::setProperties(const EntityItemProperties& properties) {
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(maxFPS, setMaxFPS);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(inputMode, setInputMode);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(showKeyboardFocusHighlight, setShowKeyboardFocusHighlight);
-
-    if (somethingChanged) {
-        bool wantDebug = false;
-        if (wantDebug) {
-            uint64_t now = usecTimestampNow();
-            int elapsed = now - getLastEdited();
-            qCDebug(entities) << "WebEntityItem::setProperties() AFTER update... edited AGO=" << elapsed <<
-                    "now=" << now << " getLastEdited()=" << getLastEdited();
-        }
-        setLastEdited(properties._lastEdited);
-    }
+    SET_ENTITY_PROPERTY_FROM_PROPERTIES(useBackground, setUseBackground);
+    SET_ENTITY_PROPERTY_FROM_PROPERTIES(userAgent, setUserAgent);
 
     return somethingChanged;
 }
@@ -109,7 +107,6 @@ int WebEntityItem::readEntitySubclassDataFromBuffer(const unsigned char* data, i
         bytesRead += bytesFromPulse;
         dataAt += bytesFromPulse;
     });
-    READ_ENTITY_PROPERTY(PROP_BILLBOARD_MODE, BillboardMode, setBillboardMode);
 
     READ_ENTITY_PROPERTY(PROP_SOURCE_URL, QString, setSourceUrl);
     READ_ENTITY_PROPERTY(PROP_DPI, uint16_t, setDPI);
@@ -117,6 +114,8 @@ int WebEntityItem::readEntitySubclassDataFromBuffer(const unsigned char* data, i
     READ_ENTITY_PROPERTY(PROP_MAX_FPS, uint8_t, setMaxFPS);
     READ_ENTITY_PROPERTY(PROP_INPUT_MODE, WebInputMode, setInputMode);
     READ_ENTITY_PROPERTY(PROP_SHOW_KEYBOARD_FOCUS_HIGHLIGHT, bool, setShowKeyboardFocusHighlight);
+    READ_ENTITY_PROPERTY(PROP_WEB_USE_BACKGROUND, bool, setUseBackground);
+    READ_ENTITY_PROPERTY(PROP_USER_AGENT, QString, setUserAgent);
 
     return bytesRead;
 }
@@ -126,7 +125,6 @@ EntityPropertyFlags WebEntityItem::getEntityProperties(EncodeBitstreamParams& pa
     requestedProperties += PROP_COLOR;
     requestedProperties += PROP_ALPHA;
     requestedProperties += _pulseProperties.getEntityProperties(params);
-    requestedProperties += PROP_BILLBOARD_MODE;
 
     requestedProperties += PROP_SOURCE_URL;
     requestedProperties += PROP_DPI;
@@ -134,6 +132,8 @@ EntityPropertyFlags WebEntityItem::getEntityProperties(EncodeBitstreamParams& pa
     requestedProperties += PROP_MAX_FPS;
     requestedProperties += PROP_INPUT_MODE;
     requestedProperties += PROP_SHOW_KEYBOARD_FOCUS_HIGHLIGHT;
+    requestedProperties += PROP_WEB_USE_BACKGROUND;
+    requestedProperties += PROP_USER_AGENT;
     return requestedProperties;
 }
 
@@ -152,7 +152,6 @@ void WebEntityItem::appendSubclassData(OctreePacketData* packetData, EncodeBitst
         _pulseProperties.appendSubclassData(packetData, params, entityTreeElementExtraEncodeData, requestedProperties,
             propertyFlags, propertiesDidntFit, propertyCount, appendState);
     });
-    APPEND_ENTITY_PROPERTY(PROP_BILLBOARD_MODE, (uint32_t)getBillboardMode());
 
     APPEND_ENTITY_PROPERTY(PROP_SOURCE_URL, getSourceUrl());
     APPEND_ENTITY_PROPERTY(PROP_DPI, getDPI());
@@ -160,75 +159,13 @@ void WebEntityItem::appendSubclassData(OctreePacketData* packetData, EncodeBitst
     APPEND_ENTITY_PROPERTY(PROP_MAX_FPS, getMaxFPS());
     APPEND_ENTITY_PROPERTY(PROP_INPUT_MODE, (uint32_t)getInputMode());
     APPEND_ENTITY_PROPERTY(PROP_SHOW_KEYBOARD_FOCUS_HIGHLIGHT, getShowKeyboardFocusHighlight());
-}
-
-glm::vec3 WebEntityItem::getRaycastDimensions() const {
-    glm::vec3 dimensions = getScaledDimensions();
-    if (getBillboardMode() != BillboardMode::NONE) {
-        float max = glm::max(dimensions.x, glm::max(dimensions.y, dimensions.z));
-        const float SQRT_2 = 1.41421356237f;
-        return glm::vec3(SQRT_2 * max);
-    }
-    return dimensions;
-}
-
-bool WebEntityItem::findDetailedRayIntersection(const glm::vec3& origin, const glm::vec3& direction,
-                                                OctreeElementPointer& element, float& distance,
-                                                BoxFace& face, glm::vec3& surfaceNormal,
-                                                QVariantMap& extraInfo, bool precisionPicking) const {
-    glm::vec3 dimensions = getScaledDimensions();
-    glm::vec2 xyDimensions(dimensions.x, dimensions.y);
-    glm::quat rotation = getWorldOrientation();
-    glm::vec3 position = getWorldPosition() + rotation * (dimensions * (ENTITY_ITEM_DEFAULT_REGISTRATION_POINT - getRegistrationPoint()));
-    rotation = EntityItem::getBillboardRotation(position, rotation, _billboardMode, EntityItem::getPrimaryViewFrustumPosition());
-
-    if (findRayRectangleIntersection(origin, direction, rotation, position, xyDimensions, distance)) {
-        glm::vec3 forward = rotation * Vectors::FRONT;
-        if (glm::dot(forward, direction) > 0.0f) {
-            face = MAX_Z_FACE;
-            surfaceNormal = -forward;
-        } else {
-            face = MIN_Z_FACE;
-            surfaceNormal = forward;
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool WebEntityItem::findDetailedParabolaIntersection(const glm::vec3& origin, const glm::vec3& velocity, const glm::vec3& acceleration,
-                                                     OctreeElementPointer& element, float& parabolicDistance,
-                                                     BoxFace& face, glm::vec3& surfaceNormal,
-                                                     QVariantMap& extraInfo, bool precisionPicking) const {
-    glm::vec3 dimensions = getScaledDimensions();
-    glm::vec2 xyDimensions(dimensions.x, dimensions.y);
-    glm::quat rotation = getWorldOrientation();
-    glm::vec3 position = getWorldPosition() + rotation * (dimensions * (ENTITY_ITEM_DEFAULT_REGISTRATION_POINT - getRegistrationPoint()));
-
-    glm::quat inverseRot = glm::inverse(rotation);
-    glm::vec3 localOrigin = inverseRot * (origin - position);
-    glm::vec3 localVelocity = inverseRot * velocity;
-    glm::vec3 localAcceleration = inverseRot * acceleration;
-
-    if (findParabolaRectangleIntersection(localOrigin, localVelocity, localAcceleration, xyDimensions, parabolicDistance)) {
-        float localIntersectionVelocityZ = localVelocity.z + localAcceleration.z * parabolicDistance;
-        glm::vec3 forward = rotation * Vectors::FRONT;
-        if (localIntersectionVelocityZ > 0.0f) {
-            face = MIN_Z_FACE;
-            surfaceNormal = forward;
-        } else {
-            face = MAX_Z_FACE;
-            surfaceNormal = -forward;
-        }
-        return true;
-    } else {
-        return false;
-    }
+    APPEND_ENTITY_PROPERTY(PROP_WEB_USE_BACKGROUND, getUseBackground());
+    APPEND_ENTITY_PROPERTY(PROP_USER_AGENT, getUserAgent());
 }
 
 void WebEntityItem::setColor(const glm::u8vec3& value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _color != value;
         _color = value;
     });
 }
@@ -239,8 +176,15 @@ glm::u8vec3 WebEntityItem::getColor() const {
     });
 }
 
+bool WebEntityItem::getLocalSafeContext() const {
+    return resultWithReadLock<bool>([&] {
+        return _localSafeContext;
+    });
+}
+
 void WebEntityItem::setAlpha(float alpha) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _alpha != alpha;
         _alpha = alpha;
     });
 }
@@ -251,20 +195,9 @@ float WebEntityItem::getAlpha() const {
     });
 }
 
-BillboardMode WebEntityItem::getBillboardMode() const {
-    return resultWithReadLock<BillboardMode>([&] {
-        return _billboardMode;
-    });
-}
-
-void WebEntityItem::setBillboardMode(BillboardMode value) {
-    withWriteLock([&] {
-        _billboardMode = value;
-    });
-}
-
 void WebEntityItem::setSourceUrl(const QString& value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _sourceUrl != value;
         _sourceUrl = value;
     });
 }
@@ -277,6 +210,7 @@ QString WebEntityItem::getSourceUrl() const {
 
 void WebEntityItem::setDPI(uint16_t value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _dpi != value;
         _dpi = value;
     });
 }
@@ -288,16 +222,18 @@ uint16_t WebEntityItem::getDPI() const {
 }
 
 void WebEntityItem::setScriptURL(const QString& value) {
-    withWriteLock([&] {
-        if (_scriptURL != value) {
-            auto newURL = QUrl::fromUserInput(value);
+    auto newURL = QUrl::fromUserInput(value);
 
-            if (newURL.isValid()) {
-                _scriptURL = newURL.toDisplayString();
-            } else {
-                qCDebug(entities) << "Not setting web entity script URL since" << value << "cannot be parsed to a valid URL.";
-            }
-        }
+    if (!newURL.isValid()) {
+        qCDebug(entities) << "Not setting web entity script URL since" << value << "cannot be parsed to a valid URL.";
+        return;
+    }
+
+    auto urlString = newURL.toDisplayString();
+
+    withWriteLock([&] {
+        _needsRenderUpdate |= _scriptURL != urlString;
+        _scriptURL = urlString;
     });
 }
 
@@ -309,6 +245,7 @@ QString WebEntityItem::getScriptURL() const {
 
 void WebEntityItem::setMaxFPS(uint8_t value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _maxFPS != value;
         _maxFPS = value;
     });
 }
@@ -321,6 +258,7 @@ uint8_t WebEntityItem::getMaxFPS() const {
 
 void WebEntityItem::setInputMode(const WebInputMode& value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _inputMode != value;
         _inputMode = value;
     });
 }
@@ -337,6 +275,28 @@ void WebEntityItem::setShowKeyboardFocusHighlight(bool value) {
 
 bool WebEntityItem::getShowKeyboardFocusHighlight() const {
     return _showKeyboardFocusHighlight;
+}
+
+void WebEntityItem::setUseBackground(bool value) {
+    withWriteLock([&] {
+        _needsRenderUpdate |= _useBackground != value;
+        _useBackground = value;
+    });
+}
+
+bool WebEntityItem::getUseBackground() const {
+    return resultWithReadLock<bool>([&] { return _useBackground; });
+}
+
+void WebEntityItem::setUserAgent(const QString& value) {
+    withWriteLock([&] {
+        _needsRenderUpdate |= _userAgent != value;
+        _userAgent = value;
+    });
+}
+
+QString WebEntityItem::getUserAgent() const {
+    return resultWithReadLock<QString>([&] { return _userAgent; });
 }
 
 PulsePropertyGroup WebEntityItem::getPulseProperties() const {

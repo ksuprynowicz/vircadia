@@ -55,7 +55,7 @@ void DrawHaze::run(const render::RenderContextPointer& renderContext, const Inpu
 
     if (!_hazePipeline) {
         gpu::ShaderPointer program = gpu::Shader::createProgram(shader::render_utils::program::haze);
-        gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer state = std::make_shared<gpu::State>();
 
         state->setBlendFunction(true,
                                 gpu::State::SRC_ALPHA, gpu::State::BLEND_OP_ADD, gpu::State::INV_SRC_ALPHA,
@@ -78,7 +78,7 @@ void DrawHaze::run(const render::RenderContextPointer& renderContext, const Inpu
         batch.setModelTransform(gpu::Framebuffer::evalSubregionTexcoordTransform(outputFramebufferSize, args->_viewport));
 
         batch.setPipeline(_hazePipeline);
-        batch.setUniformBuffer(ru::Buffer::HazeParams, haze->getHazeParametersBuffer());
+        batch.setUniformBuffer(graphics::slot::buffer::Buffer::HazeParams, haze->getHazeParametersBuffer());
 
         batch.setUniformBuffer(ru::Buffer::DeferredFrameTransform, transformBuffer->getFrameTransformBuffer());
         batch.setUniformBuffer(ru::Buffer::LightModel, lightingModel->getParametersBuffer());

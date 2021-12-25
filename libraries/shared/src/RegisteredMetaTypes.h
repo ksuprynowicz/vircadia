@@ -37,6 +37,8 @@ Q_DECLARE_METATYPE(glm::vec4)
 Q_DECLARE_METATYPE(glm::quat)
 Q_DECLARE_METATYPE(glm::mat4)
 Q_DECLARE_METATYPE(QVector<float>)
+Q_DECLARE_METATYPE(unsigned int)
+Q_DECLARE_METATYPE(QVector<unsigned int>)
 Q_DECLARE_METATYPE(AACube)
 Q_DECLARE_METATYPE(std::function<void()>);
 Q_DECLARE_METATYPE(std::function<QVariant()>);
@@ -44,7 +46,7 @@ Q_DECLARE_METATYPE(std::function<QVariant()>);
 void registerMetaTypes(QScriptEngine* engine);
 
 // Mat4
-/**jsdoc
+/*@jsdoc
  * A 4 x 4 matrix, typically containing a scale, rotation, and translation transform. See also the {@link Mat4(0)|Mat4} object.
  *
  * @typedef {object} Mat4
@@ -72,7 +74,7 @@ QVariant mat4ToVariant(const glm::mat4& mat4);
 glm::mat4 mat4FromVariant(const QVariant& object, bool& valid);
 glm::mat4 mat4FromVariant(const QVariant& object);
 
-/**jsdoc
+/*@jsdoc
 * A 2-dimensional vector.
 *
 * @typedef {object} Vec2
@@ -93,7 +95,7 @@ QVariant vec2ToVariant(const glm::vec2& vec2);
 glm::vec2 vec2FromVariant(const QVariant& object, bool& valid);
 glm::vec2 vec2FromVariant(const QVariant& object);
 
-/**jsdoc
+/*@jsdoc
 * A 3-dimensional vector. See also the {@link Vec3(0)|Vec3} object.
 *
 * @typedef {object} Vec3
@@ -121,7 +123,7 @@ QVariant vec3toVariant(const glm::vec3& vec3);
 glm::vec3 vec3FromVariant(const QVariant &object, bool& valid);
 glm::vec3 vec3FromVariant(const QVariant &object);
 
-/**jsdoc
+/*@jsdoc
  * A color vector. See also the {@link Vec3(0)|Vec3} object.
  *
  * @typedef {object} Color
@@ -140,7 +142,7 @@ glm::vec3 vec3FromVariant(const QVariant &object);
  * Entities.editEntity(<id>, { color: "red"});                                // { red: 255, green: 0, blue: 0 }
  * Entities.editEntity(<id>, { color: "#00FF00"});                            // { red: 0, green: 255, blue: 0 }
  */
-/**jsdoc
+/*@jsdoc
  * A color vector with real values. Values may also be <code>null</code>. See also the {@link Vec3(0)|Vec3} object.
  *
  * @typedef {object} ColorFloat
@@ -168,7 +170,7 @@ QVariant u8vec3ColortoVariant(const glm::u8vec3& vec3);
 glm::u8vec3 u8vec3FromVariant(const QVariant &object, bool& valid);
 glm::u8vec3 u8vec3FromVariant(const QVariant &object);
 
-/**jsdoc
+/*@jsdoc
  * A 4-dimensional vector.
  *
  * @typedef {object} Vec4
@@ -191,7 +193,7 @@ QVariant quatToVariant(const glm::quat& quat);
 glm::quat quatFromVariant(const QVariant &object, bool& isValid);
 glm::quat quatFromVariant(const QVariant &object);
 
-/**jsdoc
+/*@jsdoc
  * Defines a rectangular portion of an image or screen, or similar.
  * @typedef {object} Rect
  * @property {number} x - Left, x-coordinate value.
@@ -245,6 +247,8 @@ QVector<float> qVectorFloatFromScriptValue(const QScriptValue& array);
 QScriptValue qVectorIntToScriptValue(QScriptEngine* engine, const QVector<uint32_t>& vector);
 void qVectorIntFromScriptValue(const QScriptValue& array, QVector<uint32_t>& vector);
 
+QScriptValue qVectorQUuidToScriptValue(QScriptEngine* engine, const QVector<QUuid>& vector);
+void qVectorQUuidFromScriptValue(const QScriptValue& array, QVector<QUuid>& vector);
 QVector<QUuid> qVectorQUuidFromScriptValue(const QScriptValue& array);
 
 QScriptValue aaCubeToScriptValue(QScriptEngine* engine, const AACube& aaCube);
@@ -258,7 +262,7 @@ public:
     virtual QVariantMap toVariantMap() const = 0;
 };
 
-/**jsdoc
+/*@jsdoc
  * A vector with a starting point. It is used, for example, when finding entities or avatars that lie under a mouse click or 
  * intersect a laser beam.
  *
@@ -291,7 +295,7 @@ Q_DECLARE_METATYPE(PickRay)
 QScriptValue pickRayToScriptValue(QScriptEngine* engine, const PickRay& pickRay);
 void pickRayFromScriptValue(const QScriptValue& object, PickRay& pickRay);
 
-/**jsdoc
+/*@jsdoc
  * The tip of a stylus.
  *
  * @typedef {object} StylusTip
@@ -334,7 +338,7 @@ public:
     }
 };
 
-/**jsdoc
+/*@jsdoc
 * A parabola defined by a starting point, initial velocity, and acceleration. It is used, for example, when finding entities or
 * avatars that intersect a parabolic beam.
 *
@@ -424,7 +428,7 @@ public:
         }
     }
 
-    /**jsdoc
+    /*@jsdoc
      * A volume for checking collisions in the physics simulation.
      * @typedef {object} CollisionRegion
      * @property {Shape} shape - The collision region's shape and size. Dimensions are in world coordinates, but scale with the 
@@ -439,7 +443,7 @@ public:
      *     masks overlap with the region's collision group are considered to be colliding with the region.
      */
 
-    /**jsdoc
+    /*@jsdoc
      * A physical volume.
      * @typedef {object} Shape
      * @property {ShapeType} shapeType="none" - The type of shape.
@@ -593,15 +597,17 @@ namespace std {
         }
     };
 
+#if (QT_VERSION < QT_VERSION_CHECK(5, 14, 0))
     template <>
     struct hash<QString> {
         size_t operator()(const QString& a) const {
             return qHash(a);
         }
     };
+#endif
 }
 
-/**jsdoc
+/*@jsdoc
  * <p>The type of a collision contact event.</p>
  * <table>
  *   <thead>
@@ -641,7 +647,7 @@ Q_DECLARE_METATYPE(Collision)
 QScriptValue collisionToScriptValue(QScriptEngine* engine, const Collision& collision);
 void collisionFromScriptValue(const QScriptValue &object, Collision& collision);
 
-/**jsdoc
+/*@jsdoc
  * UUIDs (Universally Unique IDentifiers) are used to uniquely identify entities, avatars, and the like. They are represented 
  * in JavaScript as strings in the format, <code>"{nnnnnnnn-nnnn-nnnn-nnnn-nnnnnnnnnnnn}"</code>, where the "n"s are
  * hexadecimal digits.
@@ -684,9 +690,11 @@ namespace graphics {
 
 using MeshPointer = std::shared_ptr<graphics::Mesh>;
 
-/**jsdoc
- * A handle for a mesh in an entity, such as returned by {@link Entities.getMeshes}.
+/*@jsdoc
+ * A mesh, such as returned by {@link Entities.getMeshes} or {@link Model} API functions.
+ *
  * @class MeshProxy
+ * @hideconstructor
  *
  * @hifi-interface
  * @hifi-client-entity
@@ -702,17 +710,17 @@ class MeshProxy : public QObject {
 public:
     virtual MeshPointer getMeshPointer() const = 0;
     
-    /**jsdoc
-     * Get the number of vertices in the mesh.
+    /*@jsdoc
+     * Gets the number of vertices in the mesh.
      * @function MeshProxy#getNumVertices
      * @returns {number} Integer number of vertices in the mesh.
      */
     Q_INVOKABLE virtual int getNumVertices() const = 0;
 
-    /**jsdoc
-     * Get the position of a vertex in the mesh.
+    /*@jsdoc
+     * Gets the position of a vertex in the mesh.
      * @function MeshProxy#getPos
-     * @param {number} index - Integer index of the mesh vertex.
+     * @param {number} index - Integer index of the vertex.
      * @returns {Vec3} Local position of the vertex relative to the mesh.
      */
     Q_INVOKABLE virtual glm::vec3 getPos(int index) const = 0;

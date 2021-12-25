@@ -3,14 +3,16 @@
 //  libraries/networking/src
 //
 //  Copyright 2017 High Fidelity, Inc.
+//  Copyright 2021 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
 
 #include "BaseAssetScriptingInterface.h"
 
-#include <QJsonDocument>
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMimeDatabase>
 #include <QThread>
 
@@ -68,6 +70,17 @@ Promise BaseAssetScriptingInterface::queryCacheMeta(const QUrl& url) {
     return assetClient()->queryCacheMetaAsync(url, makePromise(__FUNCTION__));
 }
 
+/*@jsdoc
+ * Data and information returned by {@link Assets.loadFromCache}.
+ * @typedef {object} Assets.LoadFromCacheResult
+ * @property {number} [byteLength] - The number of bytes in the retrieved data.
+ * @property {string} [contentType] - The automatically detected MIME type of the content. 
+ * @property {ArrayBuffer} data - The data bytes.
+ * @property {Assets.CacheItemMetaData} metadata - Information on the cache item.
+ * @property {string|object|ArrayBuffer} [response] - The content of the response.
+ * @property {Assets.ResponseType} responseType - The type of the content in <code>response</code>.
+ * @property {string} url - The URL of the cache item.
+ */
 Promise BaseAssetScriptingInterface::loadFromCache(const QUrl& url, bool decompress, const QString& responseType) {
     QVariantMap metaData = {
         { "_type", "cache" },

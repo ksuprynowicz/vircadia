@@ -26,29 +26,22 @@ public:
 
 protected:
     ShapeKey getShapeKey() override;
+    Item::Bound getBound(RenderArgs* args) override;
 
 private:
     virtual bool needsRenderUpdate() const override;
-    virtual bool needsRenderUpdateFromTypedEntity(const TypedEntityPointer& entity) const override;
     virtual void doRenderUpdateSynchronousTyped(const ScenePointer& scene, Transaction& transaction, const TypedEntityPointer& entity) override;
     virtual void doRenderUpdateAsynchronousTyped(const TypedEntityPointer& entity) override;
     virtual void doRender(RenderArgs* args) override;
     virtual bool isTransparent() const override;
 
-    bool useMaterialPipeline(const graphics::MultiMaterial& materials) const;
-
-    Procedural _procedural;
-    QString _lastUserData;
+    QString _proceduralData;
     entity::Shape _shape { entity::Sphere };
 
     PulsePropertyGroup _pulseProperties;
-    std::shared_ptr<graphics::Material> _material { std::make_shared<graphics::Material>() };
+    std::shared_ptr<graphics::ProceduralMaterial> _material { std::make_shared<graphics::ProceduralMaterial>() };
     glm::vec3 _color { NAN };
-    float _alpha;
-
-    glm::vec3 _position;
-    glm::vec3 _dimensions;
-    glm::quat _orientation;
+    float _alpha { NAN };
 };
 
 } } 

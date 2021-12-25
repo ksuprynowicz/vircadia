@@ -1,86 +1,103 @@
-High Fidelity (hifi) is an early-stage technology lab experimenting with Virtual Worlds and VR. 
+<p align="center"><a href="https://vircadia.com/"><img src="interface/resources/images/vircadia-banner.svg" alt="Vircadia - Codename Athena" width="350"/></a></p>
+<h3 align="center"><a href="https://vircadia.com/">Website</a> | <a href="https://discordapp.com/invite/Pvx2vke">Discord</a> | <a href="https://vircadia.com/download-vircadia/">Download</a></h3>
+<p align="center">
+    <a href="https://vircadia.com/contribute"><img alt="GitHub contributors" src="https://img.shields.io/github/contributors/vircadia/vircadia"></a>
+    <a href="https://github.com/sponsors/digisomni"><img alt="GitHub sponsors" src="https://img.shields.io/github/sponsors/digisomni?style=flat&label=github%20sponsors"></a>
+    <a href="https://github.com/vircadia/vircadia/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/vircadia/vircadia"></a>
+    <a href="https://github.com/vircadia/vircadia/network"><img alt="GitHub forks" src="https://img.shields.io/github/forks/vircadia/vircadia"></a>
+    <a href="https://www.apache.org/licenses/LICENSE-2.0"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-%230A7BBB?style=flat"></a>
+    <a href="https://discordapp.com/invite/Pvx2vke"><img alt="Discord" src="https://img.shields.io/discord/564926326025224212?style=flat"></a>
+</p>
+<h3 align="center">Build Status</h3>
+<p align="center">
+    <a href="https://github.com/vircadia/vircadia/actions/workflows/master_build.yml"><img alt="Master CI Build" src="https://github.com/vircadia/vircadia/actions/workflows/master_build.yml/badge.svg"></a>
+</p>
 
-This repository contains the source to many of the components in our 
-alpha-stage virtual world. The project embraces distributed development. 
-If you'd like to help, we'll pay you -- find out more at [Worklist.net](https://worklist.net). 
-If you find a small bug and have a fix, pull requests are welcome. If you'd 
-like to get paid for your work, make sure you report the bug via a job on 
-[Worklist.net](https://worklist.net).
+### What is this?
 
-We're hiring! We're looking for skilled developers; 
-send your resume to hiring@highfidelity.com
+Vircadia™ is a 3D social software project seeking to incrementally bring about a truly free and open metaverse.
 
-##### Chat with us
-Come chat with us in [our Gitter](https://gitter.im/highfidelity/hifi) if you have any questions or just want to say hi!
+* Desktop and VR use
+* Hundreds of users simultaneously
+* Full-body avatars
+* FBX, glTF, and OBJ support
+* JavaScript scripting engine
+* 16km³ world space in a server
+* Fully self-hosted
+* Apache 2.0
 
-Documentation
-=========
-Documentation is available at [docs.highfidelity.com](https://docs.highfidelity.com), if something is missing, please suggest it via a new job on Worklist (add to the hifi-docs project).
+### Releases
 
-There is also detailed [documentation on our coding standards](https://wiki.highfidelity.com/wiki/Coding_Standards).
+[View Releases here](https://github.com/vircadia/vircadia/releases/)
 
-Contributor License Agreement (CLA)
-=========
-Technology companies frequently receive and use code from contributors outside the company's development team. Outside code can be a tremendous resource, but it also carries responsibility. Best practice for accepting outside contributions consists of an Apache-type Contributor License Agreement (CLA). We have modeled the High Fidelity CLA after the CLA that Google presents to developers for contributions to their projects. This CLA does not transfer ownership of code, instead simply granting a non-exclusive right for High Fidelity to use the code you’ve contributed. In that regard, you should be sure you have permission if the work relates to or uses the resources of a company that you work for. You will be asked to sign our CLA when you create your first PR or when the CLA is updated. You can also [review it here](https://gist.githubusercontent.com/hifi-gustavo/fef8f06a8233d42a0040d45c3efb97a9/raw/9981827eb94f0b18666083670b6f6a02929fb402/High%2520Fidelity%2520CLA). We sincerely appreciate your contribution and efforts toward the success of the platform.
+### How to deploy a Server
 
-Build Instructions 
-=========
-All information required to build is found in the [build guide](BUILD.md).
+- [For Windows and Linux](https://vircadia.com/deploy-a-server/)
 
-Running Interface
-===
-When you launch interface, you will automatically connect to our default domain: "root.highfidelity.io".
+### Building
 
-If you don't see anything, make sure your preferences are pointing to 
-root.highfidelity.io (set your domain via Cmnd+D/Cntrl+D). If you still have no luck,
-it's possible our servers are down. If you're experiencing a major bug, let us know by
-adding an issue to this repository. Include details about your computer and how to 
-reproduce the bug in your issue. 
+#### How to build the Interface
 
-To move around in-world, use the arrow keys (and Shift + up/down to fly up or 
-down) or W A S D, and E or C to fly up/down. All of the other possible options 
-and features are available via menus in the Interface application.
+- [For Windows](https://github.com/vircadia/vircadia/blob/master/BUILD_WIN.md)
+- [For Mac](https://github.com/vircadia/vircadia/blob/master/BUILD_OSX.md)
+- [For Linux](https://github.com/vircadia/vircadia/blob/master/BUILD_LINUX.md)
+- [For Linux - Vircadia Builder](https://github.com/vircadia/vircadia-builder)
 
-Running your own servers
-========
-The assignment-client and domain-server are architectural components that will allow 
-you to run the full stack of the virtual world.
+#### How to build a Server
 
-In order to set up your own virtual world, you need to set up and run your own 
-local "domain". 
+- [For Windows](https://github.com/vircadia/vircadia/blob/master/BUILD_WIN.md)
+- [For Linux](https://github.com/vircadia/vircadia/blob/master/BUILD_LINUX.md)
+- [For Linux - Vircadia Builder](https://github.com/vircadia/vircadia-builder)
 
-The domain-server gives a number different types of assignments to the assignment-client 
-for different features: audio, avatars, voxels, particles, meta-voxels and models.
+#### How to generate an Installer
 
-Follow the instructions in the [build guide](BUILD.md) to build the various components.
+- [For Windows - Interface & Server](https://github.com/vircadia/vircadia/blob/master/INSTALLER.md)
+- [For Mac - Interface](https://github.com/vircadia/vircadia/blob/master/INSTALLER.md#os-x)
+- [For Linux - Server .deb - Vircadia Builder](INSTALLER.md#ubuntu-1804--deb)
+- [For Linux - Server .rpm - Vircadia Builder](INSTALLER.md#amazon-linux-2--rpm)
+- [For Linux - Interface AppImage - Vircadia Builder](https://github.com/vircadia/vircadia-builder/blob/master/README.md#building-appimages)
 
-From the domain-server build directory, launch a domain-server.
+### Boot to Metaverse: [The Goal](https://vircadia.com/vision/)
 
-    ./domain-server
+Having a place to experience adventure, a place to relax with calm breath, that's a world to live in. An engine to support infinite combinations and possibilities of worlds without censorship and interruption, that's metaverse. Finding a way to make infinite realities our reality is the dream.
 
-Then, run an assignment-client. The assignment-client uses localhost as its assignment-server 
-and talks to it on port 40102 (the default domain-server port).
+### Boot to Metaverse: The Technicals
 
-In a new Terminal window, run:
+Vircadia consists of many projects and codebases with its unifying structure's goal being a decentralized metaverse.
 
-    ./assignment-client
+- The Interface (Codename Athena) - You are here!
+- The Server (Codename Athena) - You are also here!
+- [The Web Interface (Codename Aether)](https://github.com/vircadia/vircadia-web/)
+- [The Web SDK (Codename Ananke)](https://github.com/vircadia/vircadia-web-sdk/)
+- [The Metaverse Server (Codename Iamus)](https://github.com/vircadia/Iamus/)
+- [The Metaverse Server Dashboard (Codename Iamus)](https://github.com/vircadia/project-iamus-dashboard/)
+- [The Launcher (Codename Pantheon)](https://github.com/vircadia/pantheon-launcher/) - Currently Windows only.
 
-Any target can be terminated with Ctrl-C (SIGINT) in the associated Terminal window.
+#### Tools
+- [Vircadia Builder for Linux](https://github.com/vircadia/vircadia-builder/)
 
-This assignment-client will grab one assignment from the domain-server. You can tell the 
-assignment-client what type you want it to be with the `-t` option. You can also run an 
-assignment-client that forks off *n* assignment-clients with the `-n` option. The `-min` 
-and `-max` options allow you to set a range of required assignment-clients. This allows 
-you to have flexibility in the number of assignment-clients that are running. 
-See `--help` for more options.
+#### Documentation
+- [User Documentation](https://github.com/vircadia/vircadia-docs-sphinx/)
+- [Developer Documentation](https://github.com/vircadia/vircadia-dev-docs/)
 
-    ./assignment-client --min 6 --max 20
+### Contribution
 
-To test things out, you'll need to run the Interface client.
+There are many contributors to Vircadia. Code writers, reviewers, testers, documentation writers, modelers, and general supporters of the project are all integral to its development and success towards its goals. Find out how you can [contribute](https://vircadia.com/contribute)!
 
-To access your local domain in Interface, open your Preferences. On OS X, this is available 
-in the Interface menu. On Linux, you'll find it in the File menu. Enter "localhost" in the 
-"Domain server" field.
+### Support
 
-If everything worked, you should see that you are connected to at least one server.
-Nice work!
+You can support the Vircadia project financially through [GitHub Sponsors](https://github.com/sponsors/digisomni/).
+
+You can also support individual active contributors by visiting each repository, this is the main Vircadia repository's [list of active contributors](https://vircadia.com/contributors-redirector/?redirect=vircadia/vircadia). Click on a contributor's profile to see if they accept donations!
+
+Keep in mind that Vircadia consists of multiple smaller projects that might have different active contributors. This is a [a non-exhaustive list](https://github.com/vircadia).
+
+#### Supporters of the Vircadia Project
+
+| [ksuprynowicz (74hc595)](https://github.com/ksuprynowicz) |
+| --- |
+| <p align="center">[<img src="https://vircadia.com/wp-content/uploads/2021/07/74hc595_profile_2-1.png" width="80" alt="ksuprynowicz" />](https://github.com/ksuprynowicz)</p>
+
+#### Sponsors of Open Source
+
+<img src="https://vircadia.com/wp-content/uploads/2021/11/CBT_OS-logo_White-V.png" width="250" alt="CrossBrowserTesting" />

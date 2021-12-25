@@ -161,7 +161,7 @@
 ;General
 
   ; hide install details since we show an image slideshow in their place
-  ShowInstDetails nevershow
+  ShowInstDetails hide
 
   ; leverage the UAC NSIS plugin to promote uninstaller to elevated privileges
   !include UAC.nsh
@@ -202,10 +202,10 @@
     ; The Inner invocation has written an uninstaller binary for us.
     ; We need to sign it if it's a production or PR build.
     !if @PRODUCTION_BUILD@ == 1
-      !if @BYPASS_SIGNING@ == 1
+      !if @BYPASS_SIGNING@ == TRUE
         !warning "BYPASS_SIGNING set - installer will not be signed"
-      !else
-        !system '"@SIGNTOOL_EXECUTABLE@" sign /fd sha256 /f %HF_PFX_FILE% /p %HF_PFX_PASSPHRASE% /tr http://sha256timestamp.ws.symantec.com/sha256/timestamp /td SHA256 $%TEMP%\@UNINSTALLER_NAME@' = 0
+      !else 
+        !system '"@SIGNTOOL_EXECUTABLE@" sign /fd sha256 /f %HF_PFX_FILE% /p %HF_PFX_PASSPHRASE% /tr http://timestamp.comodoca.com?td=sha256 /td SHA256 $%TEMP%\@UNINSTALLER_NAME@' = 0
       !endif
     !endif
 
@@ -251,8 +251,8 @@ Var substringResult
 
 !macro InitSection SecName
   ;  This macro reads component installed flag from the registry and
-  ;changes checked state of the section on the components page.
-  ;Input: section index constant name specified in Section command.
+  ;  changes checked state of the section on the components page.
+  ;  Input: section index constant name specified in Section command.
 
   ClearErrors
   ;Reading component status from registry
@@ -421,7 +421,7 @@ Function GetCampaignName
     Pop $0 ; Discard Path
     Pop $0 ; Recover filename
     ; Parse campaign out of the filename
-    ${RECaptureMatches} $0 "HighFidelity-([^-]*-)Beta-.*" $0 0
+    ${RECaptureMatches} $0 "ProjectAthena-([^-]*-)Alpha-.*" $0 0
     ${If} $0 == 1
       Pop $0 ; Recover campaign name
       StrCpy $0 $0 -1 0 ; Remove trailing - and copy to _RetVar
@@ -528,7 +528,7 @@ Var GAClientID
   Page custom PostInstallOptionsPage ReadPostInstallOptions
 
   !define MUI_PAGE_CUSTOMFUNCTION_PRE PageInstallFilesPre
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW StartInstallSlideshow
+  ; !define MUI_PAGE_CUSTOMFUNCTION_SHOW StartInstallSlideshow
   !insertmacro MUI_PAGE_INSTFILES
 
   !insertmacro MUI_UNPAGE_CONFIRM
@@ -636,6 +636,7 @@ Var Express
 
   ; figure out where to download installer slideshow images from
   StrCpy $0 "http://cdn.highfidelity.com/installer/slideshow"
+  ; Is this in use anymore?
 
   ${If} $CampaignName == ""
     StrCpy $0 "$0/default"
@@ -652,35 +653,35 @@ Var Express
 
 Function OnUserAbort
   !insertmacro LogStep "Installer" "Abort" "User Abort" ""
-  !insertmacro GoogleAnalytics "Installer" "Abort" "User Abort" ""
+  ; !insertmacro GoogleAnalytics "Installer" "Abort" "User Abort" ""
 FunctionEnd
 Function PageWelcomePre
   !insertmacro LogStep "Installer" "Welcome" "" ""
-  !insertmacro GoogleAnalytics "Installer" "Welcome" "" ""
-  !insertmacro DownloadSlideshowImages
+  ; !insertmacro GoogleAnalytics "Installer" "Welcome" "" ""
+  ; !insertmacro DownloadSlideshowImages
 FunctionEnd
 Function PageLicensePre
   !insertmacro LogStep "Installer" "License" "" ""
-  !insertmacro GoogleAnalytics "Installer" "License" "" ""
+  ; !insertmacro GoogleAnalytics "Installer" "License" "" ""
 FunctionEnd
 Function PageDirectoryPre
   !insertmacro MaybeSkipPage
   !insertmacro LogStep "Installer" "Directory" "" ""
-  !insertmacro GoogleAnalytics "Installer" "Directory" "" ""
+  ; !insertmacro GoogleAnalytics "Installer" "Directory" "" ""
 FunctionEnd
 Function PageStartMenuPre
   !insertmacro MaybeSkipPage
   !insertmacro LogStep "Installer" "StartMenu" "" ""
-  !insertmacro GoogleAnalytics "Installer" "StartMenu" "" ""
+  ; !insertmacro GoogleAnalytics "Installer" "StartMenu" "" ""
 FunctionEnd
 Function PageComponentsPre
   !insertmacro MaybeSkipPage
   !insertmacro LogStep "Installer" "Components" "" ""
-  !insertmacro GoogleAnalytics "Installer" "Components" "" ""
+  ; !insertmacro GoogleAnalytics "Installer" "Components" "" ""
 FunctionEnd
 Function PageInstallFilesPre
   !insertmacro LogStep "Installer" "Install" "" ""
-  !insertmacro GoogleAnalytics "Installer" "Install" "" ""
+  ; !insertmacro GoogleAnalytics "Installer" "Install" "" ""
 FunctionEnd
 
 !macro SetInstallOption Checkbox OptionName Default
@@ -702,7 +703,7 @@ FunctionEnd
 
 Function InstallTypesPage
   !insertmacro LogStep "Installer" "Install Types" "" ""
-  !insertmacro GoogleAnalytics "Installer" "Install Types" "" ""
+  ; !insertmacro GoogleAnalytics "Installer" "Install Types" "" ""
 
   !insertmacro MUI_HEADER_TEXT "Choose Installation Type" "Express or Custom Install"
 
@@ -717,7 +718,7 @@ Function InstallTypesPage
   StrCpy $OffsetUnits u
   StrCpy $Express "0"
 
-  ${NSD_CreateRadioButton} 30% $CurrentOffset$OffsetUnits 100% 10u "Express Install (Recommended)"; $\nInstalls High Fidelity Interface and High Fidelity Sandbox"
+  ${NSD_CreateRadioButton} 30% $CurrentOffset$OffsetUnits 100% 10u "Express Install (Recommended)"; $\nInstalls Vircadia Interface"
   pop $ExpressInstallRadioButton
   ${NSD_OnClick} $ExpressInstallRadioButton ChangeExpressLabel
   IntOp $CurrentOffset $CurrentOffset + 15
@@ -813,7 +814,7 @@ Function PostInstallOptionsPage
 
   !insertmacro MaybeSkipPage
   !insertmacro LogStep "Installer" "Post Install Options" "" ""
-  !insertmacro GoogleAnalytics "Installer" "Post Install Options" "" ""
+  ; !insertmacro GoogleAnalytics "Installer" "Post Install Options" "" ""
 
   !insertmacro MUI_HEADER_TEXT "Setup Options" ""
 
@@ -836,16 +837,24 @@ Function PostInstallOptionsPage
     !insertmacro SetInstallOption $DesktopClientCheckbox @CLIENT_DESKTOP_SHORTCUT_REG_KEY@ ${BST_CHECKED}
   ${EndIf}
 
+  ; FIXME: Re-enable or permanently remove system tray "Console" for Interface-only installs.
+  ;${If} @SERVER_COMPONENT_CONDITIONAL@
+  ;  ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Create a desktop shortcut for @SANDBOX_HF_SHORTCUT_NAME@"
+  ;${Else}
+  ;  ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Create a desktop shortcut for @CONSOLE_HF_SHORTCUT_NAME@"
+  ;${EndIf}
+  ;Pop $DesktopConsoleCheckbox
+  ;IntOp $CurrentOffset $CurrentOffset + 15  
+  ;
+  ;; set the checkbox state depending on what is present in the registry
+  ;!insertmacro SetInstallOption $DesktopConsoleCheckbox @CONSOLE_DESKTOP_SHORTCUT_REG_KEY@ ${BST_UNCHECKED}
   ${If} @SERVER_COMPONENT_CONDITIONAL@
     ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Create a desktop shortcut for @SANDBOX_HF_SHORTCUT_NAME@"
-  ${Else}
-    ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Create a desktop shortcut for @CONSOLE_HF_SHORTCUT_NAME@"
+    Pop $DesktopConsoleCheckbox
+    IntOp $CurrentOffset $CurrentOffset + 15  
+    ; set the checkbox state depending on what is present in the registry
+    !insertmacro SetInstallOption $DesktopConsoleCheckbox @CONSOLE_DESKTOP_SHORTCUT_REG_KEY@ ${BST_UNCHECKED}
   ${EndIf}
-  
-  Pop $DesktopConsoleCheckbox
-  IntOp $CurrentOffset $CurrentOffset + 15  
-  ; set the checkbox state depending on what is present in the registry
-  !insertmacro SetInstallOption $DesktopConsoleCheckbox @CONSOLE_DESKTOP_SHORTCUT_REG_KEY@ ${BST_UNCHECKED}
 
   ${If} @CLIENT_COMPONENT_CONDITIONAL@
     ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @INTERFACE_HF_SHORTCUT_NAME@ after install"
@@ -860,31 +869,54 @@ Function PostInstallOptionsPage
     ${EndIf}
   ${EndIf}
 
+  ; FIXME: Re-enable or permanently remove system tray "Console" for Interface-only installs.
+  ;${If} @SERVER_COMPONENT_CONDITIONAL@
+  ;  ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @SANDBOX_HF_SHORTCUT_NAME@ after install"
+  ;${Else}
+  ;  ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @CONSOLE_HF_SHORTCUT_NAME@ after install"
+  ;${EndIf}
+  ;Pop $LaunchConsoleNowCheckbox
+  ;
+  ;; set the checkbox state depending on what is present in the registry
+  ;!insertmacro SetInstallOption $LaunchConsoleNowCheckbox @SERVER_LAUNCH_NOW_REG_KEY@ ${BST_UNCHECKED}
+  ;${StrContains} $substringResult "/forceNoLaunchServer" $CMDLINE
+  ;${IfNot} $substringResult == ""
+  ;  ${NSD_SetState} $LaunchConsoleNowCheckbox ${BST_UNCHECKED}
+  ;${EndIf}
+  ;IntOp $CurrentOffset $CurrentOffset + 15
   ${If} @SERVER_COMPONENT_CONDITIONAL@
     ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @SANDBOX_HF_SHORTCUT_NAME@ after install"
-  ${Else}
-    ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @CONSOLE_HF_SHORTCUT_NAME@ after install"
-  ${EndIf}
-  Pop $LaunchConsoleNowCheckbox
-
-  ; set the checkbox state depending on what is present in the registry
-  !insertmacro SetInstallOption $LaunchConsoleNowCheckbox @SERVER_LAUNCH_NOW_REG_KEY@ ${BST_CHECKED}
-  ${StrContains} $substringResult "/forceNoLaunchServer" $CMDLINE
-  ${IfNot} $substringResult == ""
+    Pop $LaunchConsoleNowCheckbox
+    
+    ; set the checkbox state depending on what is present in the registry
+    !insertmacro SetInstallOption $LaunchConsoleNowCheckbox @SERVER_LAUNCH_NOW_REG_KEY@ ${BST_UNCHECKED}
+    ${StrContains} $substringResult "/forceNoLaunchServer" $CMDLINE
+    ${IfNot} $substringResult == ""
       ${NSD_SetState} $LaunchConsoleNowCheckbox ${BST_UNCHECKED}
+    ${EndIf}
+    IntOp $CurrentOffset $CurrentOffset + 15
   ${EndIf}
-  IntOp $CurrentOffset $CurrentOffset + 30
-
-  ${If} @SERVER_COMPONENT_CONDITIONAL@  
-    ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @SANDBOX_HF_SHORTCUT_NAME@ on startup"
-  ${Else}
-    ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @CONSOLE_HF_SHORTCUT_NAME@ on startup"
-  ${EndIf}
-  Pop $ConsoleStartupCheckbox
   IntOp $CurrentOffset $CurrentOffset + 15
 
-  ; set the checkbox state depending on what is present in the registry
-  !insertmacro SetInstallOption $ConsoleStartupCheckbox @CONSOLE_STARTUP_REG_KEY@ ${BST_CHECKED}
+  ; FIXME: Re-enable or permanently remove system tray "Console" for Interface-only installs.
+  ;${If} @SERVER_COMPONENT_CONDITIONAL@
+  ;  ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @SANDBOX_HF_SHORTCUT_NAME@ on startup"
+  ;${Else}
+  ;  ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @CONSOLE_HF_SHORTCUT_NAME@ on startup"
+  ;${EndIf}
+  ;Pop $ConsoleStartupCheckbox
+  ;IntOp $CurrentOffset $CurrentOffset + 15
+  ;
+  ;; set the checkbox state depending on what is present in the registry
+  ;!insertmacro SetInstallOption $ConsoleStartupCheckbox @CONSOLE_STARTUP_REG_KEY@ ${BST_UNCHECKED}
+  ${If} @SERVER_COMPONENT_CONDITIONAL@
+    ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Launch @SANDBOX_HF_SHORTCUT_NAME@ on startup"
+    Pop $ConsoleStartupCheckbox
+    IntOp $CurrentOffset $CurrentOffset + 15
+    
+    ; set the checkbox state depending on what is present in the registry
+    !insertmacro SetInstallOption $ConsoleStartupCheckbox @CONSOLE_STARTUP_REG_KEY@ ${BST_UNCHECKED}
+  ${EndIf}
 
   ${NSD_CreateCheckbox} 0 $CurrentOffset$OffsetUnits 100% 10u "&Perform a clean install (Delete older settings and content)"
   Pop $CleanInstallCheckbox
@@ -937,8 +969,8 @@ Function ReadInstallTypes
     StrCpy $Express "1"
 
     StrCpy $DesktopClientState ${BST_CHECKED}
-    StrCpy $ConsoleStartupState ${BST_CHECKED}
-    StrCpy $LaunchConsoleNowState ${BST_CHECKED}
+    StrCpy $ConsoleStartupState ${BST_UNCHECKED}
+    StrCpy $LaunchConsoleNowState ${BST_UNCHECKED}
     StrCpy $LaunchClientNowState ${BST_CHECKED}
     StrCpy $CleanInstallState ${BST_UNCHECKED}
     StrCpy $DesktopConsoleState ${BST_UNCHECKED}
@@ -956,13 +988,29 @@ FunctionEnd
 
 Function ReadPostInstallOptions
 
-  ; check if the user asked for a desktop shortcut to console
-  ${NSD_GetState} $DesktopConsoleCheckbox $DesktopConsoleState
-  ${LogText} "Option: Start Desktop Console: $DesktopConsoleState"
+  ; FIXME: Re-enable or permanently remove system tray "Console" for Interface-only installs.
+  ;; check if the user asked for a desktop shortcut to console
+  ;${NSD_GetState} $DesktopConsoleCheckbox $DesktopConsoleState
+  ;${LogText} "Option: Start Desktop Console: $DesktopConsoleState"
+  ${If} @SERVER_COMPONENT_CONDITIONAL@
+    ; check if the user asked for a desktop shortcut to console
+    ${NSD_GetState} $DesktopConsoleCheckbox $DesktopConsoleState
+    ${LogText} "Option: Start Desktop Console: $DesktopConsoleState"
+  ${Else}
+    StrCpy $DesktopConsoleState ${BST_UNCHECKED}
+  ${EndIf}
   
-  ; check if the user asked to have console launched every startup
-  ${NSD_GetState} $ConsoleStartupCheckbox $ConsoleStartupState
-  ${LogText} "Option: Start Desktop Console On Startup: $ConsoleStartupState"
+  ; FIXME: Re-enable or permanently remove system tray "Console" for Interface-only installs.
+  ;; check if the user asked to have console launched every startup
+  ;${NSD_GetState} $ConsoleStartupCheckbox $ConsoleStartupState
+  ;${LogText} "Option: Start Desktop Console On Startup: $ConsoleStartupState"
+  ${If} @SERVER_COMPONENT_CONDITIONAL@
+    ; check if the user asked to have console launched every startup
+    ${NSD_GetState} $ConsoleStartupCheckbox $ConsoleStartupState
+    ${LogText} "Option: Start Desktop Console On Startup: $ConsoleStartupState"
+  ${Else}
+    StrCpy $ConsoleStartupState ${BST_UNCHECKED}
+  ${EndIf}
 
   ${If} @SERVER_COMPONENT_CONDITIONAL@
     ${LogText} "Option: Install Server"
@@ -970,7 +1018,7 @@ Function ReadPostInstallOptions
   
   ${If} @CLIENT_COMPONENT_CONDITIONAL@
     ${LogText} "Option: Install Client"
-    ; check if the user asked for a desktop shortcut to High Fidelity
+    ; check if the user asked for a desktop shortcut to Vircadia
     ${NSD_GetState} $DesktopClientCheckbox $DesktopClientState
     ${LogText} "Option: Create Client Desktop Shortcut: $DesktopClientState"
   ${EndIf}
@@ -1024,7 +1072,7 @@ Function HandlePostInstallOptions
   ${EndIf}
 
   ${If} @CLIENT_COMPONENT_CONDITIONAL@
-    ; check if the user asked for a desktop shortcut to High Fidelity
+    ; check if the user asked for a desktop shortcut to Vircadia
     ${If} $DesktopClientState == ${BST_CHECKED}
       CreateShortCut "$DESKTOP\@INTERFACE_HF_SHORTCUT_NAME@.lnk" "$INSTDIR\@INTERFACE_WIN_EXEC_NAME@"
       !insertmacro WriteInstallOption "@CLIENT_DESKTOP_SHORTCUT_REG_KEY@" YES
@@ -1085,7 +1133,7 @@ Function HandlePostInstallOptions
       ClearErrors
 
       ; copy the data from production build to this PR build
-      CopyFiles "$APPDATA\High Fidelity\*" $0
+      CopyFiles "$APPDATA\Vircadia\*" $0
 
       ; handle an error in copying files
       IfErrors 0 NoError
@@ -1156,7 +1204,17 @@ FunctionEnd
 
 Section "-Core installation"
 
-  ;The following delete blocks are temporary and can be removed once users who had the initial installer have updated
+  ; 2016-02-25 - The following delete blocks are temporary and can be removed once users who had the initial installer have updated
+  ; 2019-09-10 - (3 and a half years later) Sure they are buddy.  Sure they are.
+
+  ; MessageBox MB_OK|MB_ICONEXCLAMATION "installer type is @INSTALLER_TYPE@"
+
+  ;Delete any server executables that might have been installed by bad versions of the client-only installer, but ONLY if we are a client-only installer
+  ${If} "@INSTALLER_TYPE@" == "client_only"
+    ; MessageBox MB_OK|MB_ICONEXCLAMATION "trying to delete server binaries"
+    Delete "$INSTDIR\assignment-client.exe"
+    Delete "$INSTDIR\domain-server.exe"
+  ${EndIf}
 
   ;Delete any server-console files installed before it was placed in sub-folder
   Delete "$INSTDIR\server-console.exe"
@@ -1288,19 +1346,23 @@ Section "-Core installation"
   ${EndIf}
 
   ${If} @SERVER_COMPONENT_CONDITIONAL@
+  ${AndIf} $Express != "1"
     ; handling for server console shortcut
     Delete "$SMPROGRAMS\$STARTMENU_FOLDER\@CONSOLE_SHORTCUT_NAME@.lnk"
-    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\@SANDBOX_SHORTCUT_NAME@.lnk" \
+    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\@SANDBOX_HF_SHORTCUT_NAME@.lnk" \
       "$INSTDIR\@CONSOLE_INSTALL_SUBDIR@\@CONSOLE_WIN_EXEC_NAME@"
     ; Set appUserModelId
-    ApplicationID::Set "$SMPROGRAMS\$STARTMENU_FOLDER\@SANDBOX_SHORTCUT_NAME@.lnk" "@APP_USER_MODEL_ID@"
+    ApplicationID::Set "$SMPROGRAMS\$STARTMENU_FOLDER\@SANDBOX_HF_SHORTCUT_NAME@.lnk" "@APP_USER_MODEL_ID@"
   ${Else}
     ; handling for interface only console shortcut
-    Delete "$SMPROGRAMS\$STARTMENU_FOLDER\@SANDBOX_SHORTCUT_NAME@.lnk"
-    CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\@CONSOLE_SHORTCUT_NAME@.lnk" \
-      "$INSTDIR\@CONSOLE_INSTALL_SUBDIR@\@CONSOLE_WIN_EXEC_NAME@"
-    ; Set appUserModelId
-    ApplicationID::Set "$SMPROGRAMS\$STARTMENU_FOLDER\@CONSOLE_SHORTCUT_NAME@.lnk" "@APP_USER_MODEL_ID@"
+    Delete "$SMPROGRAMS\$STARTMENU_FOLDER\@SANDBOX_HF_SHORTCUT_NAME@.lnk"
+
+    ; FIXME: Re-enable or permanently remove system tray "Console" for Interface-only installs.
+    ;CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\@CONSOLE_SHORTCUT_NAME@.lnk" \
+    ;  "$INSTDIR\@CONSOLE_INSTALL_SUBDIR@\@CONSOLE_WIN_EXEC_NAME@"
+    ;; Set appUserModelId
+    ;ApplicationID::Set "$SMPROGRAMS\$STARTMENU_FOLDER\@CONSOLE_SHORTCUT_NAME@.lnk" "@APP_USER_MODEL_ID@"
+
   ${EndIf}
 
   CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\Uninstall.lnk" "$INSTDIR\@UNINSTALLER_NAME@"
@@ -1315,13 +1377,13 @@ Section "-Core installation"
   @CPACK_NSIS_EXTRA_INSTALL_COMMANDS@
 
   ; see if we have a campaign that we might need to grab special content for
-  Call OptionallyDownloadCampaignServerless
+  ; Call OptionallyDownloadCampaignServerless
 
   ; Handle whichever post install options were set
   Call HandlePostInstallOptions
 
   !insertmacro LogStep "Installer" "Done" "" ""
-  !insertmacro GoogleAnalytics "Installer" "Done" "" ""
+  ; !insertmacro GoogleAnalytics "Installer" "Done" "" ""
 SectionEnd
 
 !include nsProcess.nsh
@@ -1348,7 +1410,7 @@ SectionEnd
         /SD IDCANCEL IDRETRY Prompt_${UniqueID} IDCANCEL 0
       ${EndIf}
 
-      !insertmacro GoogleAnalytics "Installer" "Abort" "${displayName} Running" ""
+      ; !insertmacro GoogleAnalytics "Installer" "Abort" "${displayName} Running" ""
 
       ; If the user decided to cancel, stop the current installer/uninstaller
       Abort
@@ -1507,7 +1569,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\$MUI_TEMP\Uninstall.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\@INTERFACE_SHORTCUT_NAME@.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\@CONSOLE_SHORTCUT_NAME@.lnk"
-  Delete "$SMPROGRAMS\$MUI_TEMP\@SANDBOX_SHORTCUT_NAME@.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\@SANDBOX_HF_SHORTCUT_NAME@.lnk"
   Delete "$DESKTOP\@INTERFACE_HF_SHORTCUT_NAME@.lnk"
   Delete "$DESKTOP\@CONSOLE_HF_SHORTCUT_NAME@.lnk"
   Delete "$DESKTOP\@SANDBOX_HF_SHORTCUT_NAME@.lnk"
@@ -1548,7 +1610,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\$MUI_TEMP\Uninstall.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\@INTERFACE_SHORTCUT_NAME@.lnk"
   Delete "$SMPROGRAMS\$MUI_TEMP\@CONSOLE_SHORTCUT_NAME@.lnk"
-  Delete "$SMPROGRAMS\$MUI_TEMP\@SANDBOX_SHORTCUT_NAME@.lnk"
+  Delete "$SMPROGRAMS\$MUI_TEMP\@SANDBOX_HF_SHORTCUT_NAME@.lnk"
 @CPACK_NSIS_DELETE_ICONS_EXTRA@
 
   ;Delete empty start menu parent diretories
@@ -1592,7 +1654,7 @@ Function .onInit
   !insertmacro InitGAClientID
   !insertmacro GetCampaignName $CampaignName
 
-  !insertmacro GoogleAnalytics "Installer" "Start" "$CampaignName" ""
+  ; !insertmacro GoogleAnalytics "Installer" "Start" "$CampaignName" ""
 
   ; make sure none of the installed applications are still running
   ${LogText} "Checking For Running Applications"

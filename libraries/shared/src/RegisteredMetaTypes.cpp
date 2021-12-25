@@ -26,6 +26,8 @@
 #include <QtScript/QScriptValueIterator>
 #include <QJsonDocument>
 
+int uint32MetaTypeId = qRegisterMetaType<glm::uint32>("uint32");
+int glmUint32MetaTypeId = qRegisterMetaType<glm::uint32>("glm::uint32");
 int vec2MetaTypeId = qRegisterMetaType<glm::vec2>();
 int u8vec3MetaTypeId = qRegisterMetaType<u8vec3>();
 int vec3MetaTypeId = qRegisterMetaType<glm::vec3>();
@@ -33,6 +35,8 @@ int vec4MetaTypeId = qRegisterMetaType<glm::vec4>();
 int qVectorVec3MetaTypeId = qRegisterMetaType<QVector<glm::vec3>>();
 int qVectorQuatMetaTypeId = qRegisterMetaType<QVector<glm::quat>>();
 int qVectorBoolMetaTypeId = qRegisterMetaType<QVector<bool>>();
+int qVectorGLMUint32MetaTypeId = qRegisterMetaType<QVector<unsigned int>>("QVector<glm::uint32>");
+int qVectorQUuidMetaTypeId = qRegisterMetaType<QVector<QUuid>>();
 int quatMetaTypeId = qRegisterMetaType<glm::quat>();
 int pickRayMetaTypeId = qRegisterMetaType<PickRay>();
 int collisionMetaTypeId = qRegisterMetaType<Collision>();
@@ -55,6 +59,7 @@ void registerMetaTypes(QScriptEngine* engine) {
     qScriptRegisterMetaType(engine, qVectorBoolToScriptValue, qVectorBoolFromScriptValue);
     qScriptRegisterMetaType(engine, qVectorFloatToScriptValue, qVectorFloatFromScriptValue);
     qScriptRegisterMetaType(engine, qVectorIntToScriptValue, qVectorIntFromScriptValue);
+    qScriptRegisterMetaType(engine, qVectorQUuidToScriptValue, qVectorQUuidFromScriptValue);
 
     qScriptRegisterMetaType(engine, qSizeFToScriptValue, qSizeFFromScriptValue);
     qScriptRegisterMetaType(engine, qRectToScriptValue, qRectFromScriptValue);
@@ -67,6 +72,8 @@ void registerMetaTypes(QScriptEngine* engine) {
     qScriptRegisterMetaType(engine, aaCubeToScriptValue, aaCubeFromScriptValue);
 
     qScriptRegisterMetaType(engine, stencilMaskModeToScriptValue, stencilMaskModeFromScriptValue);
+
+    qScriptRegisterSequenceMetaType<QVector<unsigned int>>(engine);
 }
 
 QScriptValue vec2ToScriptValue(QScriptEngine* engine, const glm::vec2& vec2) {
@@ -869,6 +876,22 @@ QVector<float> qVectorFloatFromScriptValue(const QScriptValue& array) {
     return newVector;
 }
 
+QScriptValue qVectorQUuidToScriptValue(QScriptEngine* engine, const QVector<QUuid>& vector) {
+    QScriptValue array = engine->newArray();
+    for (int i = 0; i < vector.size(); i++) {
+        array.setProperty(i, quuidToScriptValue(engine, vector.at(i)));
+    }
+    return array;
+}
+
+void qVectorQUuidFromScriptValue(const QScriptValue& array, QVector<QUuid>& vector) {
+    int length = array.property("length").toInteger();
+
+    for (int i = 0; i < length; i++) {
+        vector << array.property(i).toVariant().toUuid();
+    }
+}
+
 QVector<QUuid> qVectorQUuidFromScriptValue(const QScriptValue& array) {
     if (!array.isArray()) {
         return QVector<QUuid>(); 
@@ -1061,7 +1084,7 @@ QScriptValue qColorToScriptValue(QScriptEngine* engine, const QColor& color) {
     return object;
 }
 
-/**jsdoc
+/*@jsdoc
  * An axis-aligned cube, defined as the bottom right near (minimum axes values) corner of the cube plus the dimension of its 
  * sides.
  * @typedef {object} AACube
@@ -1146,7 +1169,7 @@ void pickRayFromScriptValue(const QScriptValue& object, PickRay& pickRay) {
     }
 }
 
-/**jsdoc
+/*@jsdoc
  * Details of a collision between avatars and entities.
  * @typedef {object} Collision
  * @property {ContactEventType} type - The contact type of the collision event.
@@ -1195,7 +1218,7 @@ void quuidFromScriptValue(const QScriptValue& object, QUuid& uuid) {
     uuid = fromString;
 }
 
-/**jsdoc
+/*@jsdoc
  * A 2D size value.
  * @typedef {object} Size
  * @property {number} height - The height value.
@@ -1225,12 +1248,14 @@ AnimationDetails::AnimationDetails(QString role, QUrl url, float fps, float prio
     running(running), currentFrame(currentFrame), allowTranslation(allowTranslation) {
 }
 
-/**jsdoc
+/*@jsdoc
  * The details of an animation that is playing.
  * @typedef {object} Avatar.AnimationDetails
  * @property {string} role - <em>Not used.</em>
- * @property {string} url - The URL to the animation file. Animation files need to be in .FBX format but only need to contain
-*     the avatar skeleton and animation data.
+ * @property {string} url - The URL to the animation file. Animation files need to be in glTF or FBX format but only need to 
+ *     contain the avatar skeleton and animation data. glTF models may be in JSON or binary format (".gltf" or ".glb" URLs 
+ *     respectively).
+ *     <p><strong>Warning:</strong> glTF animations currently do not always animate correctly.</p>
  * @property {number} fps - The frames per second(FPS) rate for the animation playback. 30 FPS is normal speed.
  * @property {number} priority - <em>Not used.</em>
  * @property {boolean} loop - <code>true</code> if the animation should loop, <code>false</code> if it shouldn't.
@@ -1299,6 +1324,11 @@ void meshesFromScriptValue(const QScriptValue& value, MeshProxyList &out) {
 }
 
 
+/*@jsdoc
+ * A triangle in a mesh.
+ * @typedef {object} MeshFace
+ * @property {number[]} vertices - The indexes of the three vertices that make up the face.
+ */
 QScriptValue meshFaceToScriptValue(QScriptEngine* engine, const MeshFace &meshFace) {
     QScriptValue obj = engine->newObject();
     obj.setProperty("vertices", qVectorIntToScriptValue(engine, meshFace.vertexIndices));

@@ -11,6 +11,8 @@
 
 #include "InterfaceParentFinder.h"
 
+#include <QtCore/QSharedPointer>
+
 #include <Application.h>
 #include <AvatarData.h>
 #include <avatar/AvatarManager.h>
@@ -44,10 +46,6 @@ SpatiallyNestableWeakPointer InterfaceParentFinder::find(QUuid parentID, bool& s
     if (!parent.expired()) {
         success = true;
         return parent;
-    }
-    if (parentID == AVATAR_SELF_ID) {
-        success = true;
-        return avatarManager->getMyAvatar();
     }
 
     success = false;

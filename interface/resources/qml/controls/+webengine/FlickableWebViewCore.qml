@@ -5,6 +5,7 @@ import QtWebChannel 1.0
 import QtQuick.Controls 2.2
 
 import stylesUit 1.0 as StylesUIt
+import controlsUit 1.0 as ControlsUit
 
 Item {
     id: flick
@@ -12,9 +13,13 @@ Item {
     property alias url: webViewCore.url
     property alias canGoBack: webViewCore.canGoBack
     property alias webViewCore: webViewCore
-    property alias webViewCoreProfile: webViewCore.profile
+    // FIXME - This was commented out to allow for manual setting of the userAgent.
+    //
+    // property alias webViewCoreProfile: webViewCore.profile
     property string webViewCoreUserAgent
 
+    property bool useBackground: webViewCore.useBackground
+    property string userAgent: webViewCore.profile.httpUserAgent
     property string userScriptUrl: ""
     property string urlTag: "noDownload=false";
 
@@ -27,6 +32,14 @@ Item {
     property bool interactive: false
 
     property bool blurOnCtrlShift: true
+
+    onUrlChanged: {
+        permissionPopupBackground.visible = false;
+    }
+
+    onUserAgentChanged: {
+        webViewCore.profile.httpUserAgent = flick.userAgent;
+    }
 
     StylesUIt.HifiConstants {
         id: hifi
@@ -68,7 +81,7 @@ Item {
 
     function onLoadingChanged(loadRequest) {
         if (WebEngineView.LoadStartedStatus === loadRequest.status) {
-
+            webViewCore.profile.httpUserAgent = flick.userAgent;
             // Required to support clicking on "hifi://" links
             var url = loadRequest.url.toString();
             url = (url.indexOf("?") >= 0) ? url + urlTag : url + "?" + urlTag;
@@ -93,8 +106,8 @@ Item {
 
         width: parent.width
         height: parent.height
+        backgroundColor: (flick.useBackground) ? "white" : "transparent"
 
-        profile: HFWebEngineProfile;
         settings.pluginsEnabled: true
         settings.touchIconsEnabled: true
         settings.allowRunningInsecureContent: true
@@ -129,10 +142,12 @@ Item {
             webChannel.registerObject("eventBridge", eventBridge);
             webChannel.registerObject("eventBridgeWrapper", eventBridgeWrapper);
 
-            if (webViewCoreUserAgent !== undefined) {
-                webViewCore.profile.httpUserAgent = webViewCoreUserAgent
+            if (flick.userAgent !== undefined) {
+                webViewCore.profile.httpUserAgent = flick.userAgent;
+                webViewCore.profile.offTheRecord = false;
+                webViewCore.profile.storageName = "qmlWebEngine";
             } else {
-                webViewCore.profile.httpUserAgent += " (HighFidelityInterface)";
+                webViewCore.profile.httpUserAgent += " (VircadiaInterface)";
             }
             // Ensure the JS from the web-engine makes it to our logging
             webViewCore.javaScriptConsoleMessage.connect(function(level, message, lineNumber, sourceID) {
@@ -141,7 +156,15 @@ Item {
         }
 
         onFeaturePermissionRequested: {
-            grantFeaturePermission(securityOrigin, feature, true);
+            if (permissionPopupBackground.visible === true) {
+                console.log("Browser engine requested a new permission, but user is already being presented with a different permission request. Aborting request for new permission...");
+                return;
+            }
+
+            permissionPopupBackground.securityOrigin = securityOrigin;
+            permissionPopupBackground.feature = feature;
+
+            permissionPopupBackground.visible = true;
         }
 
         //disable popup
@@ -186,4 +209,12 @@ Item {
             webViewCore.focus = false; 
         }
     }
+
+    ControlsUit.PermissionPopupBackground {
+        id: permissionPopupBackground
+        onSendPermission: {
+            webViewCore.grantFeaturePermission(securityOrigin, feature, shouldGivePermission);
+        }
+    }
+
 }

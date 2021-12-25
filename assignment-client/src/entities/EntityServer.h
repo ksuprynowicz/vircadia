@@ -14,11 +14,15 @@
 
 #include "../octree/OctreeServer.h"
 
+#include <QtCore/QSharedPointer>
+
 #include <memory>
 
-#include "EntityItem.h"
+#include <EntityItem.h>
+#include <EntityTree.h>
+#include <SimpleEntitySimulation.h>
+
 #include "EntityServerConsts.h"
-#include "EntityTree.h"
 
 /// Handles assignments of type EntityServer - sending entities to various clients.
 
@@ -26,9 +30,6 @@ struct ViewerSendingStats {
     quint64 lastSent;
     quint64 lastEdited;
 };
-
-class SimpleEntitySimulation;
-using SimpleEntitySimulationPointer = std::shared_ptr<SimpleEntitySimulation>;
 
 class EntityServer : public OctreeServer, public NewlyCreatedEntityHook {
     Q_OBJECT

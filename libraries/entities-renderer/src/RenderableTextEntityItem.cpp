@@ -20,6 +20,7 @@
 #include "GLMHelpers.h"
 
 #include "DeferredLightingEffect.h"
+#include "RenderPipelines.h"
 
 using namespace render;
 using namespace render::entities;
@@ -30,28 +31,91 @@ const float LINE_SCALE_RATIO = 1.2f;
 
 TextEntityRenderer::TextEntityRenderer(const EntityItemPointer& entity) :
     Parent(entity),
-    _textRenderer(TextRenderer3D::getInstance(SANS_FONT_FAMILY, FIXED_FONT_POINT_SIZE / 2.0f)) {
+    _textRenderer(TextRenderer3D::getInstance(ROBOTO_FONT_FAMILY)) {
+    auto geometryCache = DependencyManager::get<GeometryCache>();
+    if (geometryCache) {
+        _geometryID = geometryCache->allocateID();
+    }
+    _material->setCullFaceMode(graphics::MaterialKey::CullFaceMode::CULL_NONE);
+    addMaterial(graphics::MaterialLayer(_material, 0), "0");
 }
 
-bool TextEntityRenderer::isTransparent() const {
-    return Parent::isTransparent() || _backgroundAlpha < 1.0f || _pulseProperties.getAlphaMode() != PulseMode::NONE;
+TextEntityRenderer::~TextEntityRenderer() {
+    auto geometryCache = DependencyManager::get<GeometryCache>();
+    if (_geometryID && geometryCache) {
+        geometryCache->releaseID(_geometryID);
+    }
 }
 
-bool TextEntityRenderer::isTextTransparent() const {
-    return resultWithReadLock<bool>([&] {
-        return Parent::isTransparent() || _textAlpha < 1.0f || _pulseProperties.getAlphaMode() != PulseMode::NONE;
+bool TextEntityRenderer::needsRenderUpdate() const {
+    return needsRenderUpdateFromMaterials() || Parent::needsRenderUpdate();
+}
+
+void TextEntityRenderer::doRenderUpdateSynchronousTyped(const ScenePointer& scene, Transaction& transaction, const TypedEntityPointer& entity) {
+    void* key = (void*)this;
+    AbstractViewStateInterface::instance()->pushPostUpdateLambda(key, [this, entity] {
+        withWriteLock([&] {
+            _dimensions = entity->getScaledDimensions();
+            _renderTransform = getModelTransform();
+            _renderTransform.postScale(_dimensions);
+        });
     });
 }
 
-Item::Bound TextEntityRenderer::getBound() {
-    auto bound = Parent::getBound();
-    if (_billboardMode != BillboardMode::NONE) {
-        glm::vec3 dimensions = bound.getScale();
-        float max = glm::max(dimensions.x, glm::max(dimensions.y, dimensions.z));
-        const float SQRT_2 = 1.41421356237f;
-        bound.setScaleStayCentered(glm::vec3(SQRT_2 * max));
+void TextEntityRenderer::doRenderUpdateAsynchronousTyped(const TypedEntityPointer& entity) {
+    _pulseProperties = entity->getPulseProperties();
+    _text = entity->getText();
+    _lineHeight = entity->getLineHeight();
+    _textColor = toGlm(entity->getTextColor());
+    _textAlpha = entity->getTextAlpha();
+    _leftMargin = entity->getLeftMargin();
+    _rightMargin = entity->getRightMargin();
+    _topMargin = entity->getTopMargin();
+    _bottomMargin = entity->getBottomMargin();
+    _font = entity->getFont();
+    _effect = entity->getTextEffect();
+    _effectColor = toGlm(entity->getTextEffectColor());
+    _effectThickness = entity->getTextEffectThickness();
+    _alignment = entity->getAlignment();
+
+    bool materialChanged = false;
+    glm::vec3 color = toGlm(entity->getBackgroundColor());
+    if (_backgroundColor != color) {
+        _backgroundColor = color;
+        _material->setAlbedo(color);
+        materialChanged = true;
     }
-    return bound;
+
+    float alpha = entity->getBackgroundAlpha();
+    if (_backgroundAlpha != alpha) {
+        _backgroundAlpha = alpha;
+        _material->setOpacity(alpha);
+        materialChanged = true;
+    }
+
+    auto unlit = entity->getUnlit();
+    if (_unlit != unlit) {
+        _unlit = unlit;
+        _material->setUnlit(_unlit);
+        materialChanged = true;
+    }
+
+    updateMaterials(materialChanged);
+
+    updateTextRenderItem();
+}
+
+bool TextEntityRenderer::isTransparent() const {
+    bool backgroundTransparent = _backgroundAlpha < 1.0f || _pulseProperties.getAlphaMode() != PulseMode::NONE;
+    return backgroundTransparent || Parent::isTransparent() || materialsTransparent();
+}
+
+bool TextEntityRenderer::isTextTransparent() const {
+    return Parent::isTransparent() || _textAlpha < 1.0f || _pulseProperties.getAlphaMode() != PulseMode::NONE;
+}
+
+Item::Bound TextEntityRenderer::getBound(RenderArgs* args) {
+    return Parent::getMaterialBound(args);
 }
 
 ItemKey TextEntityRenderer::getKey() {
@@ -59,17 +123,12 @@ ItemKey TextEntityRenderer::getKey() {
 }
 
 ShapeKey TextEntityRenderer::getShapeKey() {
-    auto builder = render::ShapeKey::Builder();
-    if (isTransparent()) {
-        builder.withTranslucent();
-    }
-    if (_primitiveMode == PrimitiveMode::LINES) {
-        builder.withWireframe();
-    }
+    auto builder = render::ShapeKey::Builder().withDepthBias();
+    updateShapeKeyBuilderFromMaterials(builder);
     return builder.build();
 }
 
-uint32_t TextEntityRenderer::metaFetchMetaSubItems(ItemIDs& subItems) {
+uint32_t TextEntityRenderer::metaFetchMetaSubItems(ItemIDs& subItems) const {
     auto parentSubs = Parent::metaFetchMetaSubItems(subItems);
     if (Item::isValidID(_textRenderID)) {
         subItems.emplace_back(_textRenderID);
@@ -78,132 +137,57 @@ uint32_t TextEntityRenderer::metaFetchMetaSubItems(ItemIDs& subItems) {
     return parentSubs;
 }
 
-bool TextEntityRenderer::needsRenderUpdateFromTypedEntity(const TypedEntityPointer& entity) const {
-    if (_text != entity->getText()) {
-        return true;
-    }
-
-    if (_lineHeight != entity->getLineHeight()) {
-        return true;
-    }
-
-    if (_textColor != toGlm(entity->getTextColor())) {
-        return true;
-    }
-
-    if (_textAlpha != entity->getTextAlpha()) {
-        return true;
-    }
-
-    if (_backgroundColor != toGlm(entity->getBackgroundColor())) {
-        return true;
-    }
-
-    if (_backgroundAlpha != entity->getBackgroundAlpha()) {
-        return true;
-    }
-
-    if (_dimensions != entity->getScaledDimensions()) {
-        return true;
-    }
-
-    if (_billboardMode != entity->getBillboardMode()) {
-        return true;
-    }
-
-    if (_leftMargin != entity->getLeftMargin()) {
-        return true;
-    }
-
-    if (_rightMargin != entity->getRightMargin()) {
-        return true;
-    }
-
-    if (_topMargin != entity->getTopMargin()) {
-        return true;
-    }
-
-    if (_bottomMargin != entity->getBottomMargin()) {
-        return true;
-    }
-
-    if (_pulseProperties != entity->getPulseProperties()) {
-        return true;
-    }
-
-    return false;
-}
-
-void TextEntityRenderer::doRenderUpdateSynchronousTyped(const ScenePointer& scene, Transaction& transaction, const TypedEntityPointer& entity) {
-    void* key = (void*)this;
-    AbstractViewStateInterface::instance()->pushPostUpdateLambda(key, [this, entity] () {
-        withWriteLock([&] {
-            _dimensions = entity->getScaledDimensions();
-            updateModelTransformAndBound();
-            _renderTransform = getModelTransform();
-            _renderTransform.postScale(_dimensions);
-        });
-    });
-}
-
-void TextEntityRenderer::doRenderUpdateAsynchronousTyped(const TypedEntityPointer& entity) {
-    withWriteLock([&] {
-        _pulseProperties = entity->getPulseProperties();
-        _text = entity->getText();
-        _lineHeight = entity->getLineHeight();
-        _textColor = toGlm(entity->getTextColor());
-        _textAlpha = entity->getTextAlpha();
-        _backgroundColor = toGlm(entity->getBackgroundColor());
-        _backgroundAlpha = entity->getBackgroundAlpha();
-        _billboardMode = entity->getBillboardMode();
-        _leftMargin = entity->getLeftMargin();
-        _rightMargin = entity->getRightMargin();
-        _topMargin = entity->getTopMargin();
-        _bottomMargin = entity->getBottomMargin();
-        updateTextRenderItem();
-    });
-}
-
 void TextEntityRenderer::doRender(RenderArgs* args) {
     PerformanceTimer perfTimer("RenderableTextEntityItem::render");
     Q_ASSERT(args->_batch);
-    gpu::Batch& batch = *args->_batch;
 
-    glm::vec4 backgroundColor;
-    Transform modelTransform;
-    BillboardMode billboardMode;
-    PrimitiveMode primitiveMode;
-    RenderLayer renderLayer;
-    withReadLock([&] {
-        modelTransform = _renderTransform;
-        billboardMode = _billboardMode;
-        primitiveMode = _primitiveMode;
-        renderLayer = _renderLayer;
+    graphics::MultiMaterial materials;
+    {
+        std::lock_guard<std::mutex> lock(_materialsLock);
+        materials = _materials["0"];
+    }
 
-        float fadeRatio = _isFading ? Interpolate::calculateFadeRatio(_fadeStartTime) : 1.0f;
-        backgroundColor = glm::vec4(_backgroundColor, fadeRatio * _backgroundAlpha);
-        backgroundColor = EntityRenderer::calculatePulseColor(backgroundColor, _pulseProperties, _created);
-    });
+    auto& schema = materials.getSchemaBuffer().get<graphics::MultiMaterial::Schema>();
+    glm::vec4 backgroundColor = glm::vec4(ColorUtils::tosRGBVec3(schema._albedo), schema._opacity);
+    backgroundColor = EntityRenderer::calculatePulseColor(backgroundColor, _pulseProperties, _created);
 
     if (backgroundColor.a <= 0.0f) {
         return;
     }
 
-    modelTransform.setRotation(EntityItem::getBillboardRotation(modelTransform.getTranslation(), modelTransform.getRotation(), billboardMode, args->getViewFrustum().getPosition()));
-    batch.setModelTransform(modelTransform);
+    gpu::Batch& batch = *args->_batch;
+
+    bool transparent;
+    Transform transform;
+    withReadLock([&] {
+        transparent = isTransparent();
+        transform = _renderTransform;
+    });
+
+    transform.setRotation(BillboardModeHelpers::getBillboardRotation(transform.getTranslation(), transform.getRotation(), _billboardMode,
+        args->_renderMode == RenderArgs::RenderMode::SHADOW_RENDER_MODE ? BillboardModeHelpers::getPrimaryViewFrustumPosition() : args->getViewFrustum().getPosition()));
+    batch.setModelTransform(transform);
+
+    Pipeline pipelineType = getPipelineType(materials);
+    if (pipelineType == Pipeline::PROCEDURAL) {
+        auto procedural = std::static_pointer_cast<graphics::ProceduralMaterial>(materials.top().material);
+        transparent |= procedural->isFading();
+        procedural->prepare(batch, transform.getTranslation(), transform.getScale(), transform.getRotation(), _created, ProceduralProgramKey(transparent));
+    } else if (pipelineType == Pipeline::MATERIAL) {
+        if (RenderPipelines::bindMaterials(materials, batch, args->_renderMode, args->_enableTexturing)) {
+            args->_details._materialSwitches++;
+        }
+    }
 
     auto geometryCache = DependencyManager::get<GeometryCache>();
-    render::ShapePipelinePointer pipeline;
-    if (renderLayer == RenderLayer::WORLD && args->_renderMethod != Args::RenderMethod::FORWARD) {
-        pipeline = backgroundColor.a < 1.0f ? geometryCache->getTransparentShapePipeline() : geometryCache->getOpaqueShapePipeline();
+    if (pipelineType == Pipeline::SIMPLE) {
+        geometryCache->renderQuad(batch, glm::vec2(-0.5f), glm::vec2(0.5f), backgroundColor, _geometryID);
     } else {
-        pipeline = backgroundColor.a < 1.0f ? geometryCache->getForwardTransparentShapePipeline() : geometryCache->getForwardOpaqueShapePipeline();
+        geometryCache->renderQuad(batch, glm::vec2(-0.5f), glm::vec2(0.5f), glm::vec2(0.0f), glm::vec2(1.0f), backgroundColor, _geometryID);
     }
-    if (render::ShapeKey(args->_globalShapeKey).isWireframe() || primitiveMode == PrimitiveMode::LINES) {
-        geometryCache->renderWireShapeInstance(args, batch, GeometryCache::Quad, backgroundColor, pipeline);
-    } else {
-        geometryCache->renderSolidShapeInstance(args, batch, GeometryCache::Quad, backgroundColor, pipeline);
-    }
+
+    const int TRIANGLES_PER_QUAD = 2;
+    args->_details._trianglesRendered += TRIANGLES_PER_QUAD;
 }
 
 QSizeF TextEntityRenderer::textSize(const QString& text) const {
@@ -224,7 +208,6 @@ void TextEntityRenderer::onAddToSceneTyped(const TypedEntityPointer& entity) {
     render::Transaction transaction;
     transaction.resetItem(_textRenderID, renderPayload);
     AbstractViewStateInterface::instance()->getMain3DScene()->enqueueTransaction(transaction);
-    updateTextRenderItem();
 }
 
 void TextEntityRenderer::onRemoveFromSceneTyped(const TypedEntityPointer& entity) {
@@ -257,50 +240,75 @@ entities::TextPayload::~TextPayload() {
 }
 
 ItemKey entities::TextPayload::getKey() const {
-    auto renderable = DependencyManager::get<EntityTreeRenderer>()->renderableForEntityId(_entityID);
-    if (renderable) {
-        auto textRenderable = std::static_pointer_cast<TextEntityRenderer>(renderable);
-        ItemKey::Builder key;
-        // Similar to EntityRenderer::getKey()
-        if (textRenderable->isTextTransparent()) {
-            key = ItemKey::Builder::transparentShape().withSubMetaCulled().withTagBits(textRenderable->getTagMask()).withLayer(textRenderable->getHifiRenderLayer());
-        } else if (textRenderable->_canCastShadow) {
-            key = ItemKey::Builder::opaqueShape().withSubMetaCulled().withTagBits(textRenderable->getTagMask()).withShadowCaster().withLayer(textRenderable->getHifiRenderLayer());
-        } else {
-            key = ItemKey::Builder::opaqueShape().withSubMetaCulled().withTagBits(textRenderable->getTagMask()).withLayer(textRenderable->getHifiRenderLayer());
-        }
+    auto entityTreeRenderer = DependencyManager::get<EntityTreeRenderer>();
+    if (entityTreeRenderer) {
+        auto renderable = entityTreeRenderer->renderableForEntityId(_entityID);
+        if (renderable) {
+            auto textRenderable = std::static_pointer_cast<TextEntityRenderer>(renderable);
 
-        if (!textRenderable->_visible) {
-            key.withInvisible();
+            // Similar to RenderableEntityItem::getKey()
+            ItemKey::Builder builder = ItemKey::Builder().withTypeShape().withTypeMeta().withTagBits(textRenderable->getTagMask()).withLayer(textRenderable->getHifiRenderLayer());
+            builder.withSubMetaCulled();
+
+            if (textRenderable->isTextTransparent()) {
+                builder.withTransparent();
+            } else if (textRenderable->_canCastShadow) {
+                builder.withShadowCaster();
+            }
+
+            if (!textRenderable->_visible) {
+                builder.withInvisible();
+            }
+
+            return builder;
         }
-        return key;
     }
     return ItemKey::Builder::opaqueShape();
 }
 
-Item::Bound entities::TextPayload::getBound() const {
-    auto renderable = DependencyManager::get<EntityTreeRenderer>()->renderableForEntityId(_entityID);
-    if (renderable) {
-        return std::static_pointer_cast<TextEntityRenderer>(renderable)->getBound();
+Item::Bound entities::TextPayload::getBound(RenderArgs* args) const {
+    auto entityTreeRenderer = DependencyManager::get<EntityTreeRenderer>();
+    if (entityTreeRenderer) {
+        auto renderable = entityTreeRenderer->renderableForEntityId(_entityID);
+        if (renderable) {
+            return std::static_pointer_cast<TextEntityRenderer>(renderable)->getBound(args);
+        }
     }
     return Item::Bound();
 }
 
 ShapeKey entities::TextPayload::getShapeKey() const {
-    auto renderable = DependencyManager::get<EntityTreeRenderer>()->renderableForEntityId(_entityID);
-    if (renderable) {
-        auto textRenderable = std::static_pointer_cast<TextEntityRenderer>(renderable);
+    auto entityTreeRenderer = DependencyManager::get<EntityTreeRenderer>();
+    if (entityTreeRenderer) {
+        auto renderable = entityTreeRenderer->renderableForEntityId(_entityID);
+        if (renderable) {
+            auto textRenderable = std::static_pointer_cast<TextEntityRenderer>(renderable);
 
-        auto builder = render::ShapeKey::Builder().withOwnPipeline();
-        if (textRenderable->isTextTransparent()) {
-            builder.withTranslucent();
+            auto builder = render::ShapeKey::Builder().withOwnPipeline();
+            if (textRenderable->isTextTransparent()) {
+                builder.withTranslucent();
+            }
+            if (textRenderable->_unlit) {
+                builder.withUnlit();
+            }
+            if (textRenderable->_primitiveMode == PrimitiveMode::LINES) {
+                builder.withWireframe();
+            }
+            return builder.build();
         }
-        if (textRenderable->_primitiveMode == PrimitiveMode::LINES) {
-            builder.withWireframe();
-        }
-        return builder.build();
     }
     return ShapeKey::Builder::invalid();
+}
+
+bool entities::TextPayload::passesZoneOcclusionTest(const std::unordered_set<QUuid>& containingZones) const {
+    auto entityTreeRenderer = DependencyManager::get<EntityTreeRenderer>();
+    if (entityTreeRenderer) {
+        auto renderable = entityTreeRenderer->renderableForEntityId(_entityID);
+        if (renderable) {
+            return std::static_pointer_cast<TextEntityRenderer>(renderable)->passesZoneOcclusionTest(containingZones);
+        }
+    }
+    return false;
 }
 
 void entities::TextPayload::render(RenderArgs* args) {
@@ -313,49 +321,49 @@ void entities::TextPayload::render(RenderArgs* args) {
         return;
     }
 
-    auto renderable = DependencyManager::get<EntityTreeRenderer>()->renderableForEntityId(_entityID);
+    auto entityTreeRenderer = DependencyManager::get<EntityTreeRenderer>();
+    if (!entityTreeRenderer) {
+        return;
+    }
+    auto renderable = entityTreeRenderer->renderableForEntityId(_entityID);
     if (!renderable) {
         return;
     }
     auto textRenderable = std::static_pointer_cast<TextEntityRenderer>(renderable);
 
-    glm::vec4 textColor;
-    Transform modelTransform;
-    BillboardMode billboardMode;
-    float lineHeight, leftMargin, rightMargin, topMargin, bottomMargin;
-    QString text;
+    Transform transform;
     glm::vec3 dimensions;
-    bool forward;
+
+    glm::vec4 textColor;
     textRenderable->withReadLock([&] {
-        modelTransform = textRenderable->_renderTransform;
-        billboardMode = textRenderable->_billboardMode;
-        lineHeight = textRenderable->_lineHeight;
-        leftMargin = textRenderable->_leftMargin;
-        rightMargin = textRenderable->_rightMargin;
-        topMargin = textRenderable->_topMargin;
-        bottomMargin = textRenderable->_bottomMargin;
-        text = textRenderable->_text;
+        transform = textRenderable->_renderTransform;
         dimensions = textRenderable->_dimensions;
 
         float fadeRatio = textRenderable->_isFading ? Interpolate::calculateFadeRatio(textRenderable->_fadeStartTime) : 1.0f;
         textColor = glm::vec4(textRenderable->_textColor, fadeRatio * textRenderable->_textAlpha);
-        textColor = EntityRenderer::calculatePulseColor(textColor, textRenderable->_pulseProperties, textRenderable->_created);
-        forward = textRenderable->_renderLayer != RenderLayer::WORLD || args->_renderMethod == render::Args::FORWARD;
     });
+
+    bool forward = textRenderable->_renderLayer != RenderLayer::WORLD || args->_renderMethod == render::Args::FORWARD;
+
+    textColor = EntityRenderer::calculatePulseColor(textColor, textRenderable->_pulseProperties, textRenderable->_created);
+    glm::vec3 effectColor = EntityRenderer::calculatePulseColor(textRenderable->_effectColor, textRenderable->_pulseProperties, textRenderable->_created);
 
     if (textColor.a <= 0.0f) {
         return;
     }
 
-    modelTransform.setRotation(EntityItem::getBillboardRotation(modelTransform.getTranslation(), modelTransform.getRotation(), billboardMode, args->getViewFrustum().getPosition()));
+    transform.setRotation(BillboardModeHelpers::getBillboardRotation(transform.getTranslation(), transform.getRotation(), textRenderable->_billboardMode,
+        args->_renderMode == RenderArgs::RenderMode::SHADOW_RENDER_MODE ? BillboardModeHelpers::getPrimaryViewFrustumPosition() : args->getViewFrustum().getPosition()));
 
-    float scale = lineHeight / textRenderer->getFontSize();
-    modelTransform.postTranslate(glm::vec3(-0.5, 0.5, 1.0f + EPSILON / dimensions.z));
-    modelTransform.setScale(scale);
-    batch.setModelTransform(modelTransform);
+    float scale = textRenderable->_lineHeight / textRenderer->getFontSize();
+    transform.postTranslate(glm::vec3(-0.5, 0.5, 1.0f + EPSILON / dimensions.z));
+    transform.setScale(scale);
+    batch.setModelTransform(transform);
 
-    glm::vec2 bounds = glm::vec2(dimensions.x - (leftMargin + rightMargin), dimensions.y - (topMargin + bottomMargin));
-    textRenderer->draw(batch, leftMargin / scale, -topMargin / scale, text, textColor, bounds / scale, forward);
+    glm::vec2 bounds = glm::vec2(dimensions.x - (textRenderable->_leftMargin + textRenderable->_rightMargin), dimensions.y - (textRenderable->_topMargin + textRenderable->_bottomMargin));
+    textRenderer->draw(batch, textRenderable->_leftMargin / scale, -textRenderable->_topMargin / scale, bounds / scale, scale,
+                       textRenderable->_text, textRenderable->_font, textColor, effectColor, textRenderable->_effectThickness, textRenderable->_effect,
+                       textRenderable->_alignment, textRenderable->_unlit, forward);
 }
 
 namespace render {
@@ -366,9 +374,9 @@ template <> const ItemKey payloadGetKey(const TextPayload::Pointer& payload) {
     return ItemKey::Builder::opaqueShape();
 }
 
-template <> const Item::Bound payloadGetBound(const TextPayload::Pointer& payload) {
+template <> const Item::Bound payloadGetBound(const TextPayload::Pointer& payload, RenderArgs* args) {
     if (payload) {
-        return payload->getBound();
+        return payload->getBound(args);
     }
     return Item::Bound();
 }
@@ -383,4 +391,12 @@ template <> const ShapeKey shapeGetShapeKey(const TextPayload::Pointer& payload)
 template <> void payloadRender(const TextPayload::Pointer& payload, RenderArgs* args) {
     return payload->render(args);
 }
+
+template <> bool payloadPassesZoneOcclusionTest(const entities::TextPayload::Pointer& payload, const std::unordered_set<QUuid>& containingZones) {
+    if (payload) {
+        return payload->passesZoneOcclusionTest(containingZones);
+    }
+    return false;
+}
+
 }

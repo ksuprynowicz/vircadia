@@ -9,6 +9,7 @@
 //
 
 import QtQuick 2.5
+import QtQuick.Controls 2.2
 
 import "."
 import "./preferences"
@@ -30,9 +31,13 @@ Item {
     property bool keyboardRaised: false
     property bool punctuationMode: false
     property bool gotoPreviousApp: false
+    property bool gotoPreviousAppFromScript: false
 
     property var tablet;
-  
+
+    readonly property real verticalScrollWidth: 10
+    readonly property real verticalScrollShaft: 8
+
     function saveAll() {
         dialog.forceActiveFocus();  // Accept any text box edits in progress.
 
@@ -42,7 +47,9 @@ Item {
         }
 
         if (HMD.active) {
-            if (gotoPreviousApp) {
+            if (gotoPreviousAppFromScript) {
+                dialog.parent.sendToScript("returnToPreviousApp");
+            } else if (gotoPreviousApp) {
                 tablet.returnToPreviousApp();
             } else {
                 tablet.popFromStack();
@@ -59,7 +66,9 @@ Item {
         }
 
         if (HMD.active) {
-            if (gotoPreviousApp) {
+            if (gotoPreviousAppFromScript) {
+                dialog.parent.sendToScript("returnToPreviousApp");
+            } else if (gotoPreviousApp) {
                 tablet.returnToPreviousApp();
             } else {
                 tablet.popFromStack();
@@ -72,7 +81,9 @@ Item {
     function closeDialog() {
         var tablet = Tablet.getTablet("com.highfidelity.interface.tablet.system");
 
-        if (gotoPreviousApp) {
+        if (gotoPreviousAppFromScript) {
+            dialog.parent.sendToScript("returnToPreviousApp");
+        } else if (gotoPreviousApp) {
             tablet.returnToPreviousApp();
         } else {
             tablet.gotoHomeScreen();
@@ -96,6 +107,43 @@ Item {
             height: parent.height
             contentWidth: parent.width
             contentHeight: getSectionsHeight();
+
+            anchors.top: main.top
+            anchors.bottom: main.bottom
+
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AlwaysOn
+                parent: scrollView.parent
+                anchors.top: scrollView.top
+                anchors.right: scrollView.right
+                anchors.bottom: scrollView.bottom
+                z: 100  // Display over top of separators.
+
+                background: Item {
+                    implicitWidth: verticalScrollWidth
+                    Rectangle {
+                        color: hifi.colors.baseGrayShadow
+                        radius: 4
+                        anchors {
+                            fill: parent
+                            bottomMargin: 1
+                        }
+                    }
+                }
+                contentItem: Item {
+                    implicitWidth: verticalScrollShaft
+                    Rectangle {
+                        radius: verticalScrollShaft/2
+                        color: hifi.colors.white30
+                        anchors {
+                            fill: parent
+                            topMargin: 1
+                            bottomMargin: 1
+                        }
+                    }
+                }
+            }
+
             Column {
                 width: 480
                 Component {
@@ -176,7 +224,7 @@ Item {
                 for (var i = 0; i < sections.length; i++) {
                     totalHeight += sections[i].height + sections[i].getPreferencesHeight();
                 }
-                var bottomPadding = 170;
+                var bottomPadding = 30;
                 return (totalHeight + bottomPadding);
             }
         }

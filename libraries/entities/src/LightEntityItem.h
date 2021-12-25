@@ -33,11 +33,9 @@ public:
     /// set dimensions in domain scale units (0.0 - 1.0) this will also reset radius appropriately
     virtual void setUnscaledDimensions(const glm::vec3& value) override;
 
-    virtual bool setProperties(const EntityItemProperties& properties) override;
-    virtual bool setSubClassProperties(const EntityItemProperties& properties) override;
-
     // methods for getting/setting all properties of an entity
     virtual EntityItemProperties getProperties(const EntityPropertyFlags& desiredProperties, bool allowEmptyDesiredProperties) const override;
+    virtual bool setSubClassProperties(const EntityItemProperties& properties) override;
 
     virtual EntityPropertyFlags getEntityProperties(EncodeBitstreamParams& params) const override;
 
@@ -73,21 +71,15 @@ public:
     
     static bool getLightsArePickable() { return _lightsArePickable; }
     static void setLightsArePickable(bool value) { _lightsArePickable = value; }
-    
-    virtual void locationChanged(bool tellPhysics, bool tellChildren) override;
-    virtual void dimensionsChanged() override;
-
-    bool lightPropertiesChanged() const { return _lightPropertiesChanged; }
-    void resetLightPropertiesChanged();
 
     virtual bool supportsDetailedIntersection() const override { return true; }
     virtual bool findDetailedRayIntersection(const glm::vec3& origin, const glm::vec3& direction,
-                            OctreeElementPointer& element, float& distance,
+                            const glm::vec3& viewFrustumPos, OctreeElementPointer& element, float& distance,
                             BoxFace& face, glm::vec3& surfaceNormal,
                             QVariantMap& extraInfo, bool precisionPicking) const override;
     virtual bool findDetailedParabolaIntersection(const glm::vec3& origin, const glm::vec3& velocity,
-                            const glm::vec3& acceleration, OctreeElementPointer& element, float& parabolicDistance,
-                            BoxFace& face, glm::vec3& surfaceNormal,
+                            const glm::vec3& acceleration, const glm::vec3& viewFrustumPos, OctreeElementPointer& element,
+                            float& parabolicDistance, BoxFace& face, glm::vec3& surfaceNormal,
                             QVariantMap& extraInfo, bool precisionPicking) const override;
 
 private:
@@ -98,8 +90,6 @@ private:
     float _falloffRadius { DEFAULT_FALLOFF_RADIUS };
     float _exponent { DEFAULT_EXPONENT };
     float _cutoff { DEFAULT_CUTOFF };
-    // Dirty flag turn true when either light properties is changing values.
-    bool _lightPropertiesChanged { false };
 
     static bool _lightsArePickable;
 };

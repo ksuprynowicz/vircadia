@@ -13,6 +13,7 @@
 
 #include <QtCore/QFile>
 #include <QtCore/QFileSelector>
+#include <QtCore/QDateTime>
 #include <QtCore/QDebug>
 
 #include <StatTracker.h>
@@ -22,6 +23,7 @@
 #include "NetworkLogging.h"
 #include "ResourceManager.h"
 #include "NetworkingConstants.h"
+#include "MetaverseAPI.h"
 
 void FileResourceRequest::doSend() {
     auto statTracker = DependencyManager::get<StatTracker>();
@@ -53,6 +55,7 @@ void FileResourceRequest::doSend() {
     } else {
         QFile file(filename);
         if (file.exists()) {
+            setProperty("last-modified", toHttpDateString(QFileInfo(file).lastModified().toMSecsSinceEpoch()));
             if (file.open(QFile::ReadOnly)) {
 
                 if (file.size() < _byteRange.fromInclusive || file.size() < _byteRange.toExclusive) {

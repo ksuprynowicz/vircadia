@@ -4,6 +4,7 @@
 //
 //  Created by Andrzej Kapolka on 5/10/13.
 //  Copyright 2013 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -17,6 +18,7 @@
 #include <QtCore/QHash>
 #include <QtCore/QPointer>
 #include <QtCore/QSet>
+#include <QtCore/QSharedPointer>
 #include <QtCore/QStringList>
 #include <QtQuick/QQuickItem>
 
@@ -49,6 +51,8 @@
 #include <shared/ConicalViewFrustum.h>
 #include <shared/FileLogger.h>
 #include <RunningMarker.h>
+#include <ModerationFlags.h>
+#include <OffscreenUi.h>
 
 #include "avatar/MyAvatar.h"
 #include "FancyCamera.h"
@@ -78,9 +82,9 @@
 #include <ModelScriptingInterface.h>
 
 #include "Sound.h"
+#include "VisionSqueeze.h"
 
 class GLCanvas;
-class FaceTracker;
 class MainWindow;
 class AssetUpload;
 class CompositorHelper;
@@ -90,12 +94,6 @@ namespace controller {
     class StateController;
 }
 
-#ifdef Q_OS_WIN
-static const UINT UWM_IDENTIFY_INSTANCES =
-    RegisterWindowMessage("UWM_IDENTIFY_INSTANCES_{8AB82783-B74A-4258-955B-8188C22AA0D6}_" + qgetenv("USERNAME"));
-static const UINT UWM_SHOW_APPLICATION =
-    RegisterWindowMessage("UWM_SHOW_APPLICATION_{71123FD6-3DA8-4DC1-9C27-8A12A6250CBA}_" + qgetenv("USERNAME"));
-#endif
 
 static const QString RUNNING_MARKER_FILENAME = "Interface.running";
 static const QString SCRIPTS_SWITCH = "scripts";
@@ -196,9 +194,6 @@ public:
 
     ivec2 getMouse() const;
 
-    FaceTracker* getActiveFaceTracker();
-    FaceTracker* getSelectedFaceTracker();
-
     ApplicationOverlay& getApplicationOverlay() { return _applicationOverlay; }
     const ApplicationOverlay& getApplicationOverlay() const { return _applicationOverlay; }
     CompositorHelper& getApplicationCompositor() const;
@@ -232,9 +227,7 @@ public:
     bool getPreferStylusOverLaser() { return _preferStylusOverLaserSetting.get(); }
     void setPreferStylusOverLaser(bool value);
 
-    // FIXME: Remove setting completely or make available through JavaScript API?
-    //bool getPreferAvatarFingerOverStylus() { return _preferAvatarFingerOverStylusSetting.get(); }
-    bool getPreferAvatarFingerOverStylus() { return false; }
+    bool getPreferAvatarFingerOverStylus() { return _preferAvatarFingerOverStylusSetting.get(); }
     void setPreferAvatarFingerOverStylus(bool value);
 
     bool getMiniTabletEnabled() { return _miniTabletEnabledSetting.get(); }
@@ -251,7 +244,7 @@ public:
     NodeToOctreeSceneStats* getOcteeSceneStats() { return &_octreeServerSceneStats; }
 
     virtual controller::ScriptingInterface* getControllerScriptingInterface() { return _controllerScriptingInterface; }
-    virtual void registerScriptEngineWithApplicationServices(ScriptEnginePointer scriptEngine) override;
+    virtual void registerScriptEngineWithApplicationServices(const ScriptEnginePointer& scriptEngine) override;
 
     virtual void copyCurrentViewFrustum(ViewFrustum& viewOut) const override { copyDisplayViewFrustum(viewOut); }
     virtual QThread* getMainThread() override { return thread(); }
@@ -297,7 +290,7 @@ public:
 
     virtual void pushPostUpdateLambda(void* key, const std::function<void()>& func) override;
 
-    void updateMyAvatarLookAtPosition();
+    void updateMyAvatarLookAtPosition(float deltaTime);
 
     float getGameLoopRate() const { return _gameLoopCounter.rate(); }
 
@@ -325,7 +318,7 @@ public:
     bool isInterstitialMode() const { return _interstitialMode; }
     bool failedToConnectToEntityServer() const { return _failedToConnectToEntityServer; }
 
-    void replaceDomainContent(const QString& url);
+    void replaceDomainContent(const QString& url, const QString& itemName);
 
     void loadAvatarScripts(const QVector<QString>& urls);
     void unloadAvatarScripts();
@@ -334,6 +327,8 @@ public:
 
     int getOtherAvatarsReplicaCount() { return DependencyManager::get<AvatarHashMap>()->getReplicaCount(); }
     void setOtherAvatarsReplicaCount(int count) { DependencyManager::get<AvatarHashMap>()->setReplicaCount(count); }
+
+    void confirmConnectWithoutAvatarEntities();
 
     bool getLoginDialogPoppedUp() const { return _loginDialogPoppedUp; }
     void createLoginDialog();
@@ -364,6 +359,9 @@ public:
     void forceLoginWithTokens(const QString& tokens);
     void setConfigFileURL(const QString& fileUrl);
 
+    // used by preferences and HMDScriptingInterface...
+    VisionSqueeze& getVisionSqueeze() { return _visionSqueeze; }
+
 signals:
     void svoImportRequested(const QString& url);
 
@@ -383,7 +381,7 @@ signals:
     void awayStateWhenFocusLostInVRChanged(bool enabled);
 
 public slots:
-    QVector<EntityItemID> pasteEntities(float x, float y, float z);
+    QVector<EntityItemID> pasteEntities(const QString& entityHostType, float x, float y, float z);
     bool exportEntities(const QString& filename, const QVector<QUuid>& entityIDs, const glm::vec3* givenOffset = nullptr);
     bool exportEntities(const QString& filename, float x, float y, float z, float scale);
     bool importEntities(const QString& url, const bool isObservable = true, const qint64 callerId = -1);
@@ -425,7 +423,6 @@ public slots:
     static void packageModel();
 
     void resetSensors(bool andReload = false);
-    void setActiveFaceTracker() const;
 
     void hmdVisibleChanged(bool visible);
 
@@ -433,18 +430,13 @@ public slots:
     void sendWrongProtocolVersionsSignature(bool checked) { ::sendWrongProtocolVersionsSignature(checked); }
 #endif
 
-#ifdef HAVE_IVIEWHMD
-    void setActiveEyeTracker();
-    void calibrateEyeTracker1Point();
-    void calibrateEyeTracker3Points();
-    void calibrateEyeTracker5Points();
-#endif
-
     static void showHelp();
+    static void gotoTutorial();
 
     void cycleCamera();
     void cameraModeChanged();
     void cameraMenuChanged();
+    void captureMouseChanged(bool captureMouse);
     void toggleOverlays();
     void setOverlaysVisible(bool visible);
     Q_INVOKABLE void centerUI();
@@ -478,13 +470,15 @@ public slots:
     void setPreferredCursor(const QString& cursor);
 
     void setIsServerlessMode(bool serverlessDomain);
-    std::map<QString, QString> prepareServerlessDomainContents(QUrl domainURL);
+    std::map<QString, QString> prepareServerlessDomainContents(QUrl domainURL, QByteArray data);
 
     void loadServerlessDomain(QUrl domainURL);
     void loadErrorDomain(QUrl domainURL);
     void setIsInterstitialMode(bool interstitialMode);
 
     void updateVerboseLogging();
+    
+    void setCachebustRequire();
 
     void changeViewAsNeeded(float boomLength);
 
@@ -492,6 +486,9 @@ public slots:
 
     bool gpuTextureMemSizeStable();
     void showUrlHandler(const QUrl& url);
+
+    // used to test "shutdown" crash annotation.
+    void crashOnShutdown();
 
 private slots:
     void onDesktopRootItemCreated(QQuickItem* qmlContext);
@@ -502,8 +499,6 @@ private slots:
     void onPresent(quint32 frameCount);
 
     void resettingDomain();
-
-    void faceTrackerMuteToggled();
 
     void activeChanged(Qt::ApplicationState state);
     void windowMinimizedChanged(bool minimized);
@@ -616,8 +611,9 @@ private:
 
     void maybeToggleMenuVisible(QMouseEvent* event) const;
     void toggleTabletUI(bool shouldOpen = false) const;
+    bool shouldCaptureMouse() const;
 
-    void userKickConfirmation(const QUuid& nodeID);
+    void userKickConfirmation(const QUuid& nodeID, unsigned int banFlags = ModerationFlags::getDefaultBanFlags());
 
     MainWindow* _window;
     QElapsedTimer& _sessionRunTimer;
@@ -652,7 +648,7 @@ private:
 
     EntityTreePointer _entityClipboard;
 
-    mutable QMutex _viewMutex { QMutex::Recursive };
+    mutable QRecursiveMutex _viewMutex;
     ViewFrustum _viewFrustum; // current state of view frustum, perspective, orientation, etc.
     ViewFrustum _displayViewFrustum;
 
@@ -731,6 +727,9 @@ private:
 
     bool _loginDialogPoppedUp{ false };
     bool _desktopRootItemCreated{ false };
+
+    ModalDialogListener* _confirmConnectWithoutAvatarEntitiesDialog { nullptr };
+
     bool _developerMenuVisible{ false };
     QString _previousAvatarSkeletonModel;
     float _previousAvatarTargetScale;
@@ -741,13 +740,12 @@ private:
     PerformanceManager _performanceManager;
     RefreshRateManager _refreshRateManager;
 
-    quint64 _lastFaceTrackerUpdate;
-
     GameWorkload _gameWorkload;
 
     GraphicsEngine _graphicsEngine;
     void updateRenderArgs(float deltaTime);
 
+    bool _disableLoginScreen { true };
 
     Overlays _overlays;
     ApplicationOverlay _applicationOverlay;
@@ -769,12 +767,14 @@ private:
 
     bool _settingsLoaded { false };
 
-    bool _fakedMouseEvent { false };
+    bool _captureMouse { false };
+    bool _ignoreMouseMove { false };
+    QPointF _mouseCaptureTarget { NAN, NAN };
 
     bool _isMissingSequenceNumbers { false };
 
     void checkChangeCursor();
-    mutable QMutex _changeCursorLock { QMutex::Recursive };
+    mutable QRecursiveMutex _changeCursorLock;
     Qt::CursorShape _desiredCursor{ Qt::BlankCursor };
     bool _cursorNeedsChanging { false };
 
@@ -837,5 +837,9 @@ private:
     bool _resumeAfterLoginDialogActionTaken_SafeToRun { false };
     bool _startUpFinished { false };
     bool _overrideEntry { false };
+
+    VisionSqueeze _visionSqueeze;
+
+    bool _crashOnShutdown { false };
 };
 #endif // hifi_Application_h

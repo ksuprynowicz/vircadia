@@ -15,6 +15,7 @@
 #include <QtEndian>
 #include <QJsonDocument>
 #include <NetworkingConstants.h>
+#include <MetaverseAPI.h>
 #include <NetworkAccessManager.h>
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
@@ -49,9 +50,6 @@ int entityItemPointernMetaTypeId = qRegisterMetaType<EntityItemPointer>();
 int EntityItem::_maxActionsDataSize = 800;
 quint64 EntityItem::_rememberDeletedActionTime = 20 * USECS_PER_SECOND;
 QString EntityItem::_marketplacePublicKey;
-
-std::function<glm::quat(const glm::vec3&, const glm::quat&, BillboardMode, const glm::vec3&)> EntityItem::_getBillboardRotationOperator = [](const glm::vec3&, const glm::quat& rotation, BillboardMode, const glm::vec3&) { return rotation; };
-std::function<glm::vec3()> EntityItem::_getPrimaryViewFrustumPositionOperator = []() { return glm::vec3(0.0f); };
 
 EntityItem::EntityItem(const EntityItemID& entityItemID) :
     SpatiallyNestable(NestableType::Entity, entityItemID)
@@ -105,6 +103,8 @@ EntityPropertyFlags EntityItem::getEntityProperties(EncodeBitstreamParams& param
     requestedProperties += PROP_RENDER_LAYER;
     requestedProperties += PROP_PRIMITIVE_MODE;
     requestedProperties += PROP_IGNORE_PICK_INTERSECTION;
+    requestedProperties += PROP_RENDER_WITH_ZONES;
+    requestedProperties += PROP_BILLBOARD_MODE;
     requestedProperties += _grabProperties.getEntityProperties(params);
 
     // Physics
@@ -300,6 +300,8 @@ OctreeElement::AppendState EntityItem::appendEntityData(OctreePacketData* packet
         APPEND_ENTITY_PROPERTY(PROP_RENDER_LAYER, (uint32_t)getRenderLayer());
         APPEND_ENTITY_PROPERTY(PROP_PRIMITIVE_MODE, (uint32_t)getPrimitiveMode());
         APPEND_ENTITY_PROPERTY(PROP_IGNORE_PICK_INTERSECTION, getIgnorePickIntersection());
+        APPEND_ENTITY_PROPERTY(PROP_RENDER_WITH_ZONES, getRenderWithZones());
+        APPEND_ENTITY_PROPERTY(PROP_BILLBOARD_MODE, (uint32_t)getBillboardMode());
         withReadLock([&] {
             _grabProperties.appendSubclassData(packetData, params, entityTreeElementExtraEncodeData, requestedProperties,
                 propertyFlags, propertiesDidntFit, propertyCount, appendState);
@@ -614,10 +616,6 @@ int EntityItem::readEntityDataFromBuffer(const unsigned char* data, int bytesLef
         _lastEdited = lastEditedFromBufferAdjusted;
         _lastEditedFromRemote = now;
         _lastEditedFromRemoteInRemoteTime = lastEditedFromBuffer;
-
-        // TODO: only send this notification if something ACTUALLY changed (hint, we haven't yet parsed
-        // the properties out of the bitstream (see below))
-        somethingChangedNotification(); // notify derived classes that something has changed
     }
 
     // last updated is stored as ByteCountCoded delta from lastEdited
@@ -798,7 +796,7 @@ int EntityItem::readEntityDataFromBuffer(const unsigned char* data, int bytesLef
     auto lastEdited = lastEditedFromBufferAdjusted;
     bool otherOverwrites = overwriteLocalData && !weOwnSimulation;
     // calculate hasGrab once outside the lambda rather than calling it every time inside
-    bool hasGrab = stillHasGrabAction();
+    bool hasGrab = stillHasGrab();
     auto shouldUpdate = [lastEdited, otherOverwrites, filterRejection, hasGrab](quint64 updatedTimestamp, bool valueChanged) {
         if (hasGrab) {
             return false;
@@ -875,6 +873,8 @@ int EntityItem::readEntityDataFromBuffer(const unsigned char* data, int bytesLef
     READ_ENTITY_PROPERTY(PROP_RENDER_LAYER, RenderLayer, setRenderLayer);
     READ_ENTITY_PROPERTY(PROP_PRIMITIVE_MODE, PrimitiveMode, setPrimitiveMode);
     READ_ENTITY_PROPERTY(PROP_IGNORE_PICK_INTERSECTION, bool, setIgnorePickIntersection);
+    READ_ENTITY_PROPERTY(PROP_RENDER_WITH_ZONES, QVector<QUuid>, setRenderWithZones);
+    READ_ENTITY_PROPERTY(PROP_BILLBOARD_MODE, BillboardMode, setBillboardMode);
     withWriteLock([&] {
         int bytesFromGrab = _grabProperties.readEntitySubclassDataFromBuffer(dataAt, (bytesLeftToRead - bytesRead), args,
             propertyFlags, overwriteLocalData,
@@ -1001,6 +1001,9 @@ int EntityItem::readEntityDataFromBuffer(const unsigned char* data, int bytesLef
         element->getTree()->trackIncomingEntityLastEdited(lastEditedFromBufferAdjusted, bytesRead);
     }
 
+    if (somethingChanged) {
+        somethingChangedNotification();
+    }
 
     return bytesRead;
 }
@@ -1075,16 +1078,13 @@ void EntityItem::setMass(float mass) {
 
 void EntityItem::setHref(QString value) {
     auto href = value.toLower();
-
-    // If the string has something and doesn't start with with "hifi://" it shouldn't be set
-    // We allow the string to be empty, because that's the initial state of this property
-    if (!value.isEmpty() &&
-        !(value.toLower().startsWith("hifi://")) &&
-        !(value.toLower().startsWith("file://"))
-        // TODO: serverless-domains will eventually support http and https also
-        ) {
-        return;
-    }
+    // Let's let the user set the value of this property to anything, then let consumers of the property
+    // decide what to do with it. Currently, the only in-engine consumers are `EntityTreeRenderer::mousePressEvent()`
+    // and `OtherAvatar::handleChangedAvatarEntityData()` (to remove the href property from others' avatar entities).
+    //
+    // We want this property to be as flexible as possible. The value of this property _should_ only be values that can
+    // be handled by `AddressManager::handleLookupString()`. That function will return `false` and not do
+    // anything if the value of this property isn't something that function can handle.
     withWriteLock([&] {
         _href = value;
     });
@@ -1350,13 +1350,15 @@ EntityItemProperties EntityItem::getProperties(const EntityPropertyFlags& desire
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(created, getCreated);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(lastEditedBy, getLastEditedBy);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(entityHostType, getEntityHostType);
-    COPY_ENTITY_PROPERTY_TO_PROPERTIES(owningAvatarID, getOwningAvatarID);
+    COPY_ENTITY_PROPERTY_TO_PROPERTIES(owningAvatarID, getOwningAvatarIDForProperties);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(queryAACube, getQueryAACube);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(canCastShadow, getCanCastShadow);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(isVisibleInSecondaryCamera, isVisibleInSecondaryCamera);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(renderLayer, getRenderLayer);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(primitiveMode, getPrimitiveMode);
     COPY_ENTITY_PROPERTY_TO_PROPERTIES(ignorePickIntersection, getIgnorePickIntersection);
+    COPY_ENTITY_PROPERTY_TO_PROPERTIES(renderWithZones, getRenderWithZones);
+    COPY_ENTITY_PROPERTY_TO_PROPERTIES(billboardMode, getBillboardMode);
     withReadLock([&] {
         _grabProperties.getProperties(properties);
     });
@@ -1444,7 +1446,7 @@ void EntityItem::getTransformAndVelocityProperties(EntityItemProperties& propert
 
 void EntityItem::upgradeScriptSimulationPriority(uint8_t priority) {
     uint8_t newPriority = glm::max(priority, _scriptSimulationPriority);
-    if (newPriority < SCRIPT_GRAB_SIMULATION_PRIORITY && stillHasMyGrabAction()) {
+    if (newPriority < SCRIPT_GRAB_SIMULATION_PRIORITY && stillHasMyGrab()) {
         newPriority = SCRIPT_GRAB_SIMULATION_PRIORITY;
     }
     if (newPriority != _scriptSimulationPriority) {
@@ -1457,7 +1459,7 @@ void EntityItem::upgradeScriptSimulationPriority(uint8_t priority) {
 void EntityItem::clearScriptSimulationPriority() {
     // DO NOT markDirtyFlags(Simulation::DIRTY_SIMULATION_OWNERSHIP_PRIORITY) here, because this
     // is only ever called from the code that actually handles the dirty flags, and it knows best.
-    _scriptSimulationPriority = stillHasMyGrabAction() ? SCRIPT_GRAB_SIMULATION_PRIORITY : 0;
+    _scriptSimulationPriority = stillHasMyGrab() ? SCRIPT_GRAB_SIMULATION_PRIORITY : 0;
 }
 
 void EntityItem::setPendingOwnershipPriority(uint8_t priority) {
@@ -1506,6 +1508,8 @@ bool EntityItem::setProperties(const EntityItemProperties& properties) {
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(renderLayer, setRenderLayer);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(primitiveMode, setPrimitiveMode);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(ignorePickIntersection, setIgnorePickIntersection);
+    SET_ENTITY_PROPERTY_FROM_PROPERTIES(renderWithZones, setRenderWithZones);
+    SET_ENTITY_PROPERTY_FROM_PROPERTIES(billboardMode, setBillboardMode);
     withWriteLock([&] {
         bool grabPropertiesChanged = _grabProperties.setProperties(properties);
         somethingChanged |= grabPropertiesChanged;
@@ -1570,14 +1574,14 @@ bool EntityItem::setProperties(const EntityItemProperties& properties) {
             qCDebug(entities) << "EntityItem::setProperties() AFTER update... edited AGO=" << elapsed <<
                     "now=" << now << " getLastEdited()=" << getLastEdited();
         #endif
-        setLastEdited(now);
-        somethingChangedNotification(); // notify derived classes that something has changed
+        setLastEdited(properties._lastEdited);
         if (getDirtyFlags() & (Simulation::DIRTY_TRANSFORM | Simulation::DIRTY_VELOCITIES)) {
             // anything that sets the transform or velocity must update _lastSimulated which is used
             // for kinematic extrapolation (e.g. we want to extrapolate forward from this moment
             // when position and/or velocity was changed).
             _lastSimulated = now;
         }
+        somethingChangedNotification();
     }
 
     // timestamps
@@ -1605,8 +1609,26 @@ void EntityItem::recordCreationTime() {
 
 const Transform EntityItem::getTransformToCenter(bool& success) const {
     Transform result = getTransform(success);
-    if (getRegistrationPoint() != ENTITY_ITEM_HALF_VEC3) { // If it is not already centered, translate to center
-        result.postTranslate((ENTITY_ITEM_HALF_VEC3 - getRegistrationPoint()) * getScaledDimensions()); // Position to center
+    glm::vec3 pivot = getPivot();
+    if (pivot != ENTITY_ITEM_ZERO_VEC3) {
+        result.postTranslate(pivot);
+    }
+    glm::vec3 registrationPoint = getRegistrationPoint();
+    if (registrationPoint != ENTITY_ITEM_HALF_VEC3) { // If it is not already centered, translate to center
+        result.postTranslate((ENTITY_ITEM_HALF_VEC3 - registrationPoint) * getScaledDimensions()); // Position to center
+    }
+    return result;
+}
+
+const Transform EntityItem::getTransformToCenterWithOnlyLocalRotation(bool& success) const {
+    Transform result = getTransformWithOnlyLocalRotation(success);
+    glm::vec3 pivot = getPivot();
+    if (pivot != ENTITY_ITEM_ZERO_VEC3) {
+        result.postTranslate(pivot);
+    }
+    glm::vec3 registrationPoint = getRegistrationPoint();
+    if (registrationPoint != ENTITY_ITEM_HALF_VEC3) { // If it is not already centered, translate to center
+        result.postTranslate((ENTITY_ITEM_HALF_VEC3 - registrationPoint) * getScaledDimensions()); // Position to center
     }
     return result;
 }
@@ -1621,15 +1643,16 @@ AACube EntityItem::getMaximumAACube(bool& success) const {
             _recalcMaxAACube = false;
             // we want to compute the furthestExtent that an entity can extend out from its "position"
             // to do this we compute the max of these two vec3s: registration and 1-registration
-            // and then scale by dimensions
-            glm::vec3 maxExtents = getScaledDimensions() * glm::max(_registrationPoint, glm::vec3(1.0f) - _registrationPoint);
+            // and then scale by dimensions and add the absolute value of the pivot
+            glm::vec3 registrationPoint = getRegistrationPoint();
+            glm::vec3 maxExtents = getScaledDimensions() * glm::max(registrationPoint, glm::vec3(1.0f) - registrationPoint);
 
             // there exists a sphere that contains maxExtents for all rotations
             float radius = glm::length(maxExtents);
 
             // put a cube around the sphere
             // TODO? replace _maxAACube with _boundingSphereRadius
-            glm::vec3 minimumCorner = centerOfRotation - glm::vec3(radius, radius, radius);
+            glm::vec3 minimumCorner = (centerOfRotation + getWorldOrientation() * getPivot()) - glm::vec3(radius, radius, radius);
             _maxAACube = AACube(minimumCorner, radius * 2.0f);
         }
     } else {
@@ -1648,9 +1671,12 @@ AACube EntityItem::getMinimumAACube(bool& success) const {
         if (success) {
             _recalcMinAACube = false;
             glm::vec3 dimensions = getScaledDimensions();
-            glm::vec3 unrotatedMinRelativeToEntity = - (dimensions * _registrationPoint);
-            glm::vec3 unrotatedMaxRelativeToEntity = dimensions * (glm::vec3(1.0f, 1.0f, 1.0f) - _registrationPoint);
+            glm::vec3 registrationPoint = getRegistrationPoint();
+            glm::vec3 pivot = getPivot();
+            glm::vec3 unrotatedMinRelativeToEntity = -(dimensions * registrationPoint);
+            glm::vec3 unrotatedMaxRelativeToEntity = dimensions * (ENTITY_ITEM_ONE_VEC3 - registrationPoint);
             Extents extents = { unrotatedMinRelativeToEntity, unrotatedMaxRelativeToEntity };
+            extents.shiftBy(pivot);
             extents.rotate(getWorldOrientation());
 
             // shift the extents to be relative to the position/registration point
@@ -1678,9 +1704,12 @@ AABox EntityItem::getAABox(bool& success) const {
         if (success) {
             _recalcAABox = false;
             glm::vec3 dimensions = getScaledDimensions();
-            glm::vec3 unrotatedMinRelativeToEntity = - (dimensions * _registrationPoint);
-            glm::vec3 unrotatedMaxRelativeToEntity = dimensions * (glm::vec3(1.0f, 1.0f, 1.0f) - _registrationPoint);
+            glm::vec3 registrationPoint = getRegistrationPoint();
+            glm::vec3 pivot = getPivot();
+            glm::vec3 unrotatedMinRelativeToEntity = -(dimensions * registrationPoint);
+            glm::vec3 unrotatedMaxRelativeToEntity = dimensions * (ENTITY_ITEM_ONE_VEC3 - registrationPoint);
             Extents extents = { unrotatedMinRelativeToEntity, unrotatedMaxRelativeToEntity };
+            extents.shiftBy(pivot);
             extents.rotate(getWorldOrientation());
 
             // shift the extents to be relative to the position/registration point
@@ -1720,12 +1749,22 @@ float EntityItem::getRadius() const {
     return 0.5f * glm::length(getScaledDimensions());
 }
 
-void EntityItem::adjustShapeInfoByRegistration(ShapeInfo& info) const {
-    if (_registrationPoint != ENTITY_ITEM_DEFAULT_REGISTRATION_POINT) {
-        glm::mat4 scale = glm::scale(getScaledDimensions());
-        glm::mat4 registration = scale * glm::translate(ENTITY_ITEM_DEFAULT_REGISTRATION_POINT - getRegistrationPoint());
-        glm::vec3 regTransVec = glm::vec3(registration[3]); // extract position component from matrix
-        info.setOffset(regTransVec);
+void EntityItem::adjustShapeInfoByRegistration(ShapeInfo& info, bool includePivot) const {
+    glm::vec3 offset;
+    glm::vec3 registrationPoint = getRegistrationPoint();
+    if (registrationPoint != ENTITY_ITEM_DEFAULT_REGISTRATION_POINT) {
+        offset += (ENTITY_ITEM_DEFAULT_REGISTRATION_POINT - registrationPoint) * getScaledDimensions();
+    }
+
+    if (includePivot) {
+        glm::vec3 pivot = getPivot();
+        if (pivot != ENTITY_ITEM_ZERO_VEC3) {
+            offset += pivot;
+        }
+    }
+
+    if (offset != ENTITY_ITEM_ZERO_VEC3) {
+        info.setOffset(offset);
     }
 }
 
@@ -1733,13 +1772,11 @@ bool EntityItem::contains(const glm::vec3& point) const {
     ShapeType shapeType = getShapeType();
 
     if (shapeType == SHAPE_TYPE_SPHERE) {
-        // SPHERE case is special:
-        // anything with shapeType == SPHERE must collide as a bounding sphere in the world-frame regardless of dimensions
-        // therefore we must do math using an unscaled localPoint relative to sphere center
         glm::vec3 dimensions = getScaledDimensions();
-        glm::vec3 localPoint = point - (getWorldPosition() + getWorldOrientation() * (dimensions * (ENTITY_ITEM_DEFAULT_REGISTRATION_POINT - getRegistrationPoint())));
-        const float HALF_SQUARED = 0.25f;
-        return glm::length2(localPoint) < HALF_SQUARED * glm::length2(dimensions);
+        if (dimensions.x == dimensions.y && dimensions.y == dimensions.z) {
+            glm::vec3 localPoint = point - (getWorldPosition() + getWorldOrientation() * (dimensions * (ENTITY_ITEM_DEFAULT_REGISTRATION_POINT - getRegistrationPoint()) + getPivot()));
+            return glm::length2(localPoint) < glm::length2(0.5f * dimensions.x);
+        }
     }
 
     // we transform into the "normalized entity-frame" where the bounding box is centered on the origin
@@ -1766,6 +1803,7 @@ bool EntityItem::contains(const glm::vec3& point) const {
             localPoint = glm::abs(localPoint);
             return glm::all(glm::lessThanEqual(localPoint, glm::vec3(NORMALIZED_HALF_SIDE)));
         }
+        case SHAPE_TYPE_SPHERE:
         case SHAPE_TYPE_ELLIPSOID: {
             // since we've transformed into the normalized space this is just a sphere-point intersection test
             return glm::length2(localPoint) <= NORMALIZED_RADIUS_SQUARED;
@@ -1795,11 +1833,16 @@ float EntityItem::getVolumeEstimate() const {
 }
 
 void EntityItem::setRegistrationPoint(const glm::vec3& value) {
-    if (value != _registrationPoint) {
-        withWriteLock([&] {
+    bool changed = false;
+    withWriteLock([&] {
+        if (value != _registrationPoint) {
             _registrationPoint = glm::clamp(value, glm::vec3(ENTITY_ITEM_MIN_REGISTRATION_POINT), 
                                                    glm::vec3(ENTITY_ITEM_MAX_REGISTRATION_POINT));
-        });
+            changed = true;
+        }
+    });
+
+    if (changed) {
         dimensionsChanged(); // Registration Point affects the bounding box
         markDirtyFlags(Simulation::DIRTY_SHAPE);
     }
@@ -1829,6 +1872,7 @@ void EntityItem::setPosition(const glm::vec3& value) {
 void EntityItem::setParentID(const QUuid& value) {
     QUuid oldParentID = getParentID();
     if (oldParentID != value) {
+        _needsRenderUpdate = true;
         EntityTreePointer tree = getTree();
         if (tree && !oldParentID.isNull()) {
             tree->removeFromChildrenOfAvatars(getThisPointer());
@@ -1908,13 +1952,11 @@ void EntityItem::setUnscaledDimensions(const glm::vec3& value) {
     if (glm::length2(getUnscaledDimensions() - newDimensions) > MIN_SCALE_CHANGE_SQUARED) {
         withWriteLock([&] {
             _unscaledDimensions = newDimensions;
-        });
-        locationChanged();
-        dimensionsChanged();
-        withWriteLock([&] {
             _flags |= (Simulation::DIRTY_SHAPE | Simulation::DIRTY_MASS);
             _queryAACubeSet = false;
         });
+        locationChanged();
+        dimensionsChanged();
     }
 }
 
@@ -2204,7 +2246,7 @@ void EntityItem::enableNoBootstrap() {
 }
 
 void EntityItem::disableNoBootstrap() {
-    if (!stillHasMyGrabAction()) {
+    if (!stillHasMyGrab()) {
         _flags &= ~Simulation::SPECIAL_FLAG_NO_BOOTSTRAPPING;
         _flags |= Simulation::DIRTY_COLLISION_GROUP; // may need to not collide with own avatar
 
@@ -2290,33 +2332,25 @@ bool EntityItem::removeAction(EntitySimulationPointer simulation, const QUuid& a
     return success;
 }
 
-bool EntityItem::stillHasGrabAction() const {
-    return !_grabActions.empty();
+bool EntityItem::stillHasGrab() const {
+    return !(_grabs.empty());
 }
 
-// retutrns 'true' if there exists an action that returns 'true' for EntityActionInterface::isMine()
+// returns 'true' if there exists an action that returns 'true' for EntityActionInterface::isMine()
 // (e.g. the action belongs to the MyAvatar instance)
-bool EntityItem::stillHasMyGrabAction() const {
-    QList<EntityDynamicPointer> holdActions = getActionsOfType(DYNAMIC_TYPE_HOLD);
-    QList<EntityDynamicPointer>::const_iterator i = holdActions.begin();
-    while (i != holdActions.end()) {
-        EntityDynamicPointer action = *i;
-        if (action->isMine()) {
-            return true;
-        }
-        i++;
+bool EntityItem::stillHasMyGrab() const {
+    bool foundGrab = false;
+    if (!_grabs.empty()) {
+        _grabsLock.withReadLock([&] {
+            foreach (const GrabPointer &grab, _grabs) {
+                if (grab->getOwnerID() == Physics::getSessionUUID()) {
+                    foundGrab = true;
+                    break;
+                }
+            }
+        });
     }
-    QList<EntityDynamicPointer> farGrabActions = getActionsOfType(DYNAMIC_TYPE_FAR_GRAB);
-    i = farGrabActions.begin();
-    while (i != farGrabActions.end()) {
-        EntityDynamicPointer action = *i;
-        if (action->isMine()) {
-            return true;
-        }
-        i++;
-    }
-
-    return false;
+    return foundGrab;
 }
 
 bool EntityItem::removeActionInternal(const QUuid& actionID, EntitySimulationPointer simulation) {
@@ -2718,10 +2752,12 @@ quint64 EntityItem::getLastEdited() const {
 }
 
 void EntityItem::setLastEdited(quint64 lastEdited) {
-    withWriteLock([&] {
-        _lastEdited = _lastUpdated = lastEdited;
-        _changedOnServer = glm::max(lastEdited, _changedOnServer);
-    });
+    if (lastEdited == 0 || lastEdited > _lastEdited) {
+        withWriteLock([&] {
+            _lastEdited = _lastUpdated = lastEdited;
+            _changedOnServer = glm::max(lastEdited, _changedOnServer);
+        });
+    }
 }
 
 void EntityItem::markAsChangedOnServer() {
@@ -2897,11 +2933,9 @@ QString EntityItem::getCollisionSoundURL() const {
 }
 
 glm::vec3 EntityItem::getRegistrationPoint() const {
-    glm::vec3 result;
-    withReadLock([&] {
-        result = _registrationPoint;
+    return resultWithReadLock<glm::vec3>([&] {
+        return _registrationPoint;
     });
-    return result;
 }
 
 float EntityItem::getAngularDamping() const {
@@ -2943,17 +2977,15 @@ bool EntityItem::getVisible() const {
 }
 
 void EntityItem::setVisible(bool value) {
-    bool changed = false;
+    bool changed;
     withWriteLock([&] {
-        if (_visible != value) {
-            changed = true;
-            _visible = value;
-        }
+        changed = _visible != value;
+        _needsRenderUpdate |= changed;
+        _visible = value;
     });
 
     if (changed) {
         bumpAncestorChainRenderableVersion();
-        emit requestRenderUpdate();
     }
 }
 
@@ -2966,17 +2998,10 @@ bool EntityItem::isVisibleInSecondaryCamera() const {
 }
 
 void EntityItem::setIsVisibleInSecondaryCamera(bool value) {
-    bool changed = false;
     withWriteLock([&] {
-        if (_isVisibleInSecondaryCamera != value) {
-            changed = true;
-            _isVisibleInSecondaryCamera = value;
-        }
+        _needsRenderUpdate |= _isVisibleInSecondaryCamera != value;
+        _isVisibleInSecondaryCamera = value;
     });
-
-    if (changed) {
-        emit requestRenderUpdate();
-    }
 }
 
 RenderLayer EntityItem::getRenderLayer() const {
@@ -2986,17 +3011,10 @@ RenderLayer EntityItem::getRenderLayer() const {
 }
 
 void EntityItem::setRenderLayer(RenderLayer value) {
-    bool changed = false;
     withWriteLock([&] {
-        if (_renderLayer != value) {
-            changed = true;
-            _renderLayer = value;
-        }
+        _needsRenderUpdate |= _renderLayer != value;
+        _renderLayer = value;
     });
-
-    if (changed) {
-        emit requestRenderUpdate();
-    }
 }
 
 PrimitiveMode EntityItem::getPrimitiveMode() const {
@@ -3006,17 +3024,10 @@ PrimitiveMode EntityItem::getPrimitiveMode() const {
 }
 
 void EntityItem::setPrimitiveMode(PrimitiveMode value) {
-    bool changed = false;
     withWriteLock([&] {
-        if (_primitiveMode != value) {
-            changed = true;
-            _primitiveMode = value;
-        }
+        _needsRenderUpdate |= _primitiveMode != value;
+        _primitiveMode = value;
     });
-
-    if (changed) {
-        emit requestRenderUpdate();
-    }
 }
 
 bool EntityItem::getCauterized() const {
@@ -3026,16 +3037,14 @@ bool EntityItem::getCauterized() const {
 }
 
 void EntityItem::setCauterized(bool value) {
-    bool changed = false;
+    bool needsRenderUpdate = false;
     withWriteLock([&] {
-        if (_cauterized != value) {
-            changed = true;
-            _cauterized = value;
-        }
+        needsRenderUpdate = _cauterized != value;
+        _needsRenderUpdate |= needsRenderUpdate;
+        _cauterized = value;
     });
-
-    if (changed) {
-        emit requestRenderUpdate();
+    if (needsRenderUpdate) {
+        somethingChangedNotification();
     }
 }
 
@@ -3060,16 +3069,29 @@ bool EntityItem::getCanCastShadow() const {
 }
 
 void EntityItem::setCanCastShadow(bool value) {
-    bool changed = false;
     withWriteLock([&] {
-        if (_canCastShadow != value) {
-            changed = true;
-            _canCastShadow = value;
-        }
+        _needsRenderUpdate |= _canCastShadow != value;
+        _canCastShadow = value;
     });
+}
 
-    if (changed) {
-        emit requestRenderUpdate();
+bool EntityItem::getCullWithParent() const {
+    bool result;
+    withReadLock([&] {
+        result = _cullWithParent;
+    });
+    return result;
+}
+
+void EntityItem::setCullWithParent(bool value) {
+    bool needsRenderUpdate = false;
+    withWriteLock([&] {
+        needsRenderUpdate = _cullWithParent != value;
+        _needsRenderUpdate |= needsRenderUpdate;
+        _cullWithParent = value;
+    });
+    if (needsRenderUpdate) {
+        somethingChangedNotification();
     }
 }
 
@@ -3251,11 +3273,12 @@ void EntityItem::somethingChangedNotification() {
     });
 }
 
+// static
 void EntityItem::retrieveMarketplacePublicKey() {
     QNetworkAccessManager& networkAccessManager = NetworkAccessManager::getInstance();
     QNetworkRequest networkRequest;
     networkRequest.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
-    QUrl requestURL = NetworkingConstants::METAVERSE_SERVER_URL();
+    QUrl requestURL = MetaverseAPI::getCurrentMetaverseServerURL();
     requestURL.setPath("/api/v1/commerce/marketplace_key");
     QJsonObject request;
     networkRequest.setUrl(requestURL);
@@ -3280,6 +3303,23 @@ void EntityItem::retrieveMarketplacePublicKey() {
 
         networkReply->deleteLater();
     });
+}
+
+void EntityItem::collectChildrenForDelete(std::vector<EntityItemPointer>& entitiesToDelete, const QUuid& sessionID) const {
+    // Deleting an entity has consequences for its children, however there are rules dictating what can be deleted.
+    // This method helps enforce those rules: not for this entity, but for its children.
+    for (SpatiallyNestablePointer child : getChildren()) {
+        if (child && child->getNestableType() == NestableType::Entity) {
+            EntityItemPointer childEntity = std::static_pointer_cast<EntityItem>(child);
+            // NOTE: null sessionID means "collect ALL known children", else we only collect: local-entities and myAvatar-entities
+            if (sessionID.isNull() || childEntity->isLocalEntity() || childEntity->isMyAvatarEntity()) {
+                if (std::find(entitiesToDelete.begin(), entitiesToDelete.end(), childEntity) == entitiesToDelete.end()) {
+                    entitiesToDelete.push_back(childEntity);
+                    childEntity->collectChildrenForDelete(entitiesToDelete, sessionID);
+                }
+            }
+        }
+    }
 }
 
 void EntityItem::setSpaceIndex(int32_t index) {
@@ -3446,6 +3486,7 @@ void EntityItem::prepareForSimulationOwnershipBid(EntityItemProperties& properti
     properties.setSimulationOwner(Physics::getSessionUUID(), priority);
     setPendingOwnershipPriority(priority);
 
+    // TODO: figure out if it would be OK to NOT bother set these properties here
     properties.setEntityHostType(getEntityHostType());
     properties.setOwningAvatarID(getOwningAvatarID());
     setLastBroadcast(now); // for debug/physics status icons
@@ -3457,8 +3498,26 @@ bool EntityItem::isWearable() const {
 }
 
 bool EntityItem::isMyAvatarEntity() const {
-    return _hostType == entity::HostType::AVATAR && Physics::getSessionUUID() == _owningAvatarID;
+    return _hostType == entity::HostType::AVATAR && AVATAR_SELF_ID == _owningAvatarID;
 };
+
+QUuid EntityItem::getOwningAvatarIDForProperties() const {
+    if (isMyAvatarEntity()) {
+        // NOTE: we always store AVATAR_SELF_ID for MyAvatar's avatar entities,
+        // however for EntityItemProperties to be consumed by outside contexts (e.g. JS)
+        // we use the actual "sessionUUID" which is conveniently cached in the Physics namespace
+        return Physics::getSessionUUID();
+    }
+    return _owningAvatarID;
+}
+
+void EntityItem::setOwningAvatarID(const QUuid& owningAvatarID) {
+    if (!owningAvatarID.isNull() && owningAvatarID == Physics::getSessionUUID()) {
+        _owningAvatarID = AVATAR_SELF_ID;
+    } else {
+        _owningAvatarID = owningAvatarID;
+    }
+}
 
 void EntityItem::addGrab(GrabPointer grab) {
     enableNoBootstrap();
@@ -3556,4 +3615,32 @@ void EntityItem::disableGrab(GrabPointer grab) {
             action->deactivate();
         }
     }
+}
+
+void EntityItem::setRenderWithZones(const QVector<QUuid>& renderWithZones) {
+    withWriteLock([&] {
+        if (_renderWithZones != renderWithZones) {
+            _needsZoneOcclusionUpdate = true;
+            _renderWithZones = renderWithZones;
+        }
+    });
+}
+
+QVector<QUuid> EntityItem::getRenderWithZones() const {
+    return resultWithReadLock<QVector<QUuid>>([&] {
+        return _renderWithZones;
+    });
+}
+
+BillboardMode EntityItem::getBillboardMode() const {
+    return resultWithReadLock<BillboardMode>([&] {
+        return _billboardMode;
+    });
+}
+
+void EntityItem::setBillboardMode(BillboardMode value) {
+    withWriteLock([&] {
+        _needsRenderUpdate |= _billboardMode != value;
+        _billboardMode = value;
+    });
 }

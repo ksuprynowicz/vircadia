@@ -8,7 +8,8 @@
 
 #include "PlayerWindow.h"
 
-#include <QtCore/QTimer>
+#include <QtCore/QByteArray>
+#include <QtCore/QBuffer>
 #include <QtGui/QResizeEvent>
 #include <QtGui/QImageReader>
 #include <QtGui/QScreen>
@@ -56,7 +57,7 @@ void PlayerWindow::loadFrame() {
         }
     }
 
-    QString fileName = QFileDialog::getOpenFileName(nullptr, tr("Open File"), openDir, tr("GPU Frames (*.json)"));
+    QString fileName = QFileDialog::getOpenFileName(nullptr, tr("Open File"), openDir, tr("GPU Frames (*.hfb)"));
     if (fileName.isNull()) {
         return;
     }
@@ -70,14 +71,6 @@ void PlayerWindow::keyPressEvent(QKeyEvent* event) {
     switch (event->key()) {
         case Qt::Key_F1:
             loadFrame();
-            return;
-
-        case Qt::Key_F3:
-            _renderThread.testGlTransfer();
-            return;
-
-        case Qt::Key_F4:
-            _renderThread.testVkTransfer();
             return;
 
         case Qt::Key_W:
@@ -113,29 +106,8 @@ void PlayerWindow::resizeEvent(QResizeEvent* ev) {
     _renderThread.resize(ev->size());
 }
 
-void PlayerWindow::textureLoader(const std::string& filename, const gpu::TexturePointer& texture, uint16_t layer) {
-    QImage image;
-    QImageReader(filename.c_str()).read(&image);
-    if (layer > 0) {
-        return;
-    }
-    texture->assignStoredMip(0, image.byteCount(), image.constBits());
-}
-
-static const QString DEFAULT_TRACING_RULES =
-    "trace.*=true\n" \
-    "*.detail=false\n";
-
-
 void PlayerWindow::loadFrame(const QString& path) {
-    DependencyManager::get<tracing::Tracer>()->startTracing();
-    QLoggingCategory::setFilterRules(DEFAULT_TRACING_RULES);
-    QTimer::singleShot(10 * 1000, [] {
-        DependencyManager::get<tracing::Tracer>()->stopTracing();
-        DependencyManager::get<tracing::Tracer>()->serialize("D:/frames/trace-{DATE}_{TIME}.json.gz");
-    });
-
-    auto frame = gpu::readFrame(path.toStdString(), _renderThread._externalTexture, &PlayerWindow::textureLoader);
+    auto frame = gpu::readFrame(path.toStdString(), _renderThread._externalTexture);
     if (frame) {
         _renderThread.submitFrame(frame);
         if (!_renderThread.isThreaded()) {

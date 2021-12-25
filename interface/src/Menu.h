@@ -4,6 +4,7 @@
 //
 //  Created by Stephen Birarda on 8/12/13.
 //  Copyright 2013 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -54,9 +55,10 @@ namespace MenuOption {
     const QString BookmarkAvatarEntities = "Bookmark Avatar Entities";
     const QString BookmarkLocation = "Bookmark Location";
     const QString CalibrateCamera = "Calibrate Camera";
+    const QString CachebustRequire = "Enable Cachebusting of Script.require";
     const QString CenterPlayerInView = "Center Player In View";
     const QString Chat = "Chat...";
-    const QString ClearDiskCache = "Clear Disk Cache";
+    const QString ClearDiskCaches = "Clear Disk Caches (requires restart)";
     const QString Collisions = "Collisions";
     const QString Connexion = "Activate 3D Connexion Devices";
     const QString Console = "Console...";
@@ -72,10 +74,13 @@ namespace MenuOption {
     const QString CrashNullDereferenceThreaded = "Null Dereference (threaded)";
     const QString CrashAbort = "Abort";
     const QString CrashAbortThreaded = "Abort (threaded)";
+    const QString CrashOnShutdown = "Crash During Shutdown";
     const QString CrashOutOfBoundsVectorAccess = "Out of Bounds Vector Access";
     const QString CrashOutOfBoundsVectorAccessThreaded = "Out of Bounds Vector Access (threaded)";
     const QString CrashNewFault = "New Fault";
     const QString CrashNewFaultThreaded = "New Fault (threaded)";
+    const QString CrashThrownException = "Thrown C++ exception";
+    const QString CrashThrownExceptionThreaded = "Thrown C++ exception (threaded)";
     const QString CreateEntitiesGrabbable = "Create Entities As Grabbable (except Zones, Particles, and Lights)";
     const QString DeadlockInterface = "Deadlock Interface";
     const QString UnresponsiveInterface = "Unresponsive Interface";
@@ -85,6 +90,7 @@ namespace MenuOption {
     const QString DeleteAvatarEntitiesBookmark = "Delete Avatar Entities Bookmark";
     const QString DeleteBookmark = "Delete Bookmark...";
     const QString DisableActivityLogger = "Disable Activity Logger";
+    const QString DisableCrashLogger = "Disable Crash Reporter";
     const QString DisableEyelidAdjustment = "Disable Eyelid Adjustment";
     const QString DisableLightEntities = "Disable Light Entities";
     const QString DisplayCrashOptions = "Display Crash Options";
@@ -110,13 +116,13 @@ namespace MenuOption {
     const QString ExpandSimulationTiming = "Expand /simulation";
     const QString ExpandPhysicsTiming = "Expand /physics";
     const QString ExpandUpdateTiming = "Expand /update";
-    const QString FirstPerson = "First Person";
+    const QString FirstPerson = "First Person Legacy";
+    const QString FirstPersonLookAt = "First Person";
     const QString FirstPersonHMD = "Enter First Person Mode in HMD";
     const QString FivePointCalibration = "5 Point Calibration";
     const QString FixGaze = "Fix Gaze (no saccade)";
     const QString Forward = "Forward";
     const QString FrameTimer = "Show Timer";
-    const QString FullscreenMirror = "Mirror";
     const QString Help = "Help...";
     const QString HomeLocation = "Home ";
     const QString IncreaseAvatarSize = "Increase Avatar Size";
@@ -128,6 +134,7 @@ namespace MenuOption {
     const QString Login = "Login/Sign Up";
     const QString Log = "Log";
     const QString LogExtraTimings = "Log Extra Timing Details";
+    const QString LookAtCamera = "Third Person";
     const QString LowVelocityFilter = "Low Velocity Filter";
     const QString MeshVisible = "Draw Mesh";
     const QString MuteEnvironment = "Mute Environment";
@@ -176,10 +183,11 @@ namespace MenuOption {
     const QString ResetAvatarSize = "Reset Avatar Size";
     const QString ResetSensors = "Reset Sensors";
     const QString RunningScripts = "Running Scripts...";
-    const QString RunClientScriptTests = "Run Client Script Tests";
     const QString RunTimingTests = "Run Timing Tests";
     const QString ScriptedMotorControl = "Enable Scripted Motor Control";
+    const QString EntityScriptQMLWhitelist = "Entity Script / QML Whitelist";
     const QString ShowTrackedObjects = "Show Tracked Objects";
+    const QString SelfieCamera = "Selfie";
     const QString SendWrongDSConnectVersion = "Send wrong DS connect version";
     const QString SendWrongProtocolVersion = "Send wrong protocol version";
     const QString SetHomeLocation = "Set Home Location";
@@ -187,7 +195,9 @@ namespace MenuOption {
     const QString ShowBoundingCollisionShapes = "Show Bounding Collision Shapes";
     const QString ShowDSConnectTable = "Show Domain Connection Timing";
     const QString ShowMyLookAtVectors = "Show My Eye Vectors";
+    const QString ShowMyLookAtTarget = "Show My Look-At Target";
     const QString ShowOtherLookAtVectors = "Show Other Eye Vectors";
+    const QString ShowOtherLookAtTarget = "Show Other Look-At Target";
     const QString EnableLookAtSnapping = "Enable LookAt Snapping";
     const QString ShowRealtimeEntityStats = "Show Realtime Entity Stats";
     const QString SimulateEyeTracking = "Simulate";
@@ -198,10 +208,9 @@ namespace MenuOption {
     const QString AnimStats = "Show Animation Stats";
     const QString StopAllScripts = "Stop All Scripts";
     const QString SuppressShortTimings = "Suppress Timings Less than 10ms";
-    const QString ThirdPerson = "Third Person";
+    const QString ThirdPerson = "Third Person Legacy";
     const QString ThreePointCalibration = "3 Point Calibration";
     const QString ThrottleFPSIfNotFocus = "Throttle FPS If Not Focus"; // FIXME - this value duplicated in Basic2DWindowOpenGLDisplayPlugin.cpp
-    const QString ToggleHipsFollowing = "Toggle Hips Following";
     const QString ToolWindow = "Tool Window";
     const QString TransmitterDrive = "Transmitter Drive";
     const QString TurnWithHead = "Turn using Head";
@@ -215,7 +224,6 @@ namespace MenuOption {
     const QString DesktopTabletToToolbar = "Desktop Tablet Becomes Toolbar";
     const QString HMDTabletToToolbar = "HMD Tablet Becomes Toolbar";
     const QString Shadows = "Shadows";
-    const QString AntiAliasing = "Temporal Antialiasing (FXAA if disabled)";
     const QString AmbientOcclusion = "Ambient Occlusion";
     const QString NotificationSounds = "play_notification_sounds";
     const QString NotificationSoundsSnapshot = "play_notification_sounds_snapshot";
@@ -223,6 +231,7 @@ namespace MenuOption {
     const QString ForceCoarsePicking = "Force Coarse Picking";
     const QString ComputeBlendshapes = "Compute Blendshapes";
     const QString HighlightTransitions = "Highlight Transitions";
+    const QString MaterialProceduralShaders = "Enable Procedural Materials";
 }
 
 #endif // hifi_Menu_h

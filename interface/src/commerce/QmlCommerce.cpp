@@ -72,11 +72,11 @@ void QmlCommerce::openSystemApp(const QString& appName) {
         else if (appPathIter->contains(".html", Qt::CaseInsensitive)) {
             QMap<QString, QString>::const_iterator injectIter = systemInject.find(appName);
             if (appPathIter == systemInject.end()) {
-                tablet->gotoWebScreen(NetworkingConstants::METAVERSE_SERVER_URL().toString() + *appPathIter);
+                tablet->gotoWebScreen(MetaverseAPI::getCurrentMetaverseServerURL().toString() + *appPathIter);
             }
             else {
                 QString inject = "file:///" + qApp->applicationDirPath() + *injectIter;
-                tablet->gotoWebScreen(NetworkingConstants::METAVERSE_SERVER_URL().toString() + *appPathIter, inject);
+                tablet->gotoWebScreen(MetaverseAPI::getCurrentMetaverseServerURL().toString() + *appPathIter, inject);
             }
         }
         else {
@@ -259,7 +259,7 @@ void QmlCommerce::authorizeAssetTransfer(const QString& couponID,
     ledger->authorizeAssetTransfer(key, couponID, certificateID, amount, optionalMessage);
 }
 
-void QmlCommerce::replaceContentSet(const QString& itemHref, const QString& certificateID) {
+void QmlCommerce::replaceContentSet(const QString& itemHref, const QString& certificateID, const QString& itemName) {
     if (!certificateID.isEmpty()) {
         auto ledger = DependencyManager::get<Ledger>();
         ledger->updateLocation(
@@ -267,7 +267,7 @@ void QmlCommerce::replaceContentSet(const QString& itemHref, const QString& cert
             DependencyManager::get<AddressManager>()->getPlaceName(),
             true);
     }
-    qApp->replaceDomainContent(itemHref);
+    qApp->replaceDomainContent(itemHref, itemName);
     QJsonObject messageProperties = {
         { "status", "SuccessfulRequestToReplaceContent" },
         { "content_set_url", itemHref } };

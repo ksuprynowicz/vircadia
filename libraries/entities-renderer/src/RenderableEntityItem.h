@@ -55,15 +55,25 @@ public:
 
     const uint64_t& getUpdateTime() const { return _updateTime; }
 
+    enum class Pipeline {
+        SIMPLE,
+        MATERIAL,
+        PROCEDURAL
+    };
     virtual void addMaterial(graphics::MaterialLayer material, const std::string& parentMaterialName);
     virtual void removeMaterial(graphics::MaterialPointer material, const std::string& parentMaterialName);
+    virtual graphics::MaterialPointer getTopMaterial();
+    static Pipeline getPipelineType(const graphics::MultiMaterial& materials);
+    virtual gpu::TexturePointer getTexture() { return nullptr; }
 
     virtual scriptable::ScriptableModelBase getScriptableModel() override { return scriptable::ScriptableModelBase(); }
 
     static glm::vec4 calculatePulseColor(const glm::vec4& color, const PulsePropertyGroup& pulseProperties, quint64 start);
+    static glm::vec3 calculatePulseColor(const glm::vec3& color, const PulsePropertyGroup& pulseProperties, quint64 start);
 
-    virtual uint32_t metaFetchMetaSubItems(ItemIDs& subItems) override;
-    virtual Item::Bound getBound() override;
+    virtual uint32_t metaFetchMetaSubItems(ItemIDs& subItems) const override;
+    virtual Item::Bound getBound(RenderArgs* args) override;
+    bool passesZoneOcclusionTest(const std::unordered_set<QUuid>& containingZones) const override;
 
 protected:
     virtual bool needsRenderUpdateFromEntity() const final { return needsRenderUpdateFromEntity(_entity); }
@@ -93,40 +103,35 @@ protected:
     // Will be called by the lambda posted to the scene in updateInScene.  
     // This function will execute on the rendering thread, so you cannot use network caches to fetch
     // data in this method if using multi-threaded rendering
-    
-    virtual void doRenderUpdateAsynchronous(const EntityItemPointer& entity) { }
+    virtual void doRenderUpdateAsynchronous(const EntityItemPointer& entity);
 
     // Called by the `render` method after `needsRenderUpdate`
     virtual void doRender(RenderArgs* args) = 0;
 
     virtual bool isFading() const { return _isFading; }
-    void updateModelTransformAndBound();
+    virtual void updateModelTransformAndBound(const EntityItemPointer& entity);
     virtual bool isTransparent() const { return _isFading ? Interpolate::calculateFadeRatio(_fadeStartTime) < 1.0f : false; }
     inline bool isValidRenderItem() const { return _renderItemID != Item::INVALID_ITEM_ID; }
 
     virtual void setIsVisibleInSecondaryCamera(bool value) { _isVisibleInSecondaryCamera = value; }
     virtual void setRenderLayer(RenderLayer value) { _renderLayer = value; }
-    virtual void setPrimitiveMode(PrimitiveMode value) { _primitiveMode = value; }
-    
-    template <typename F, typename T>
-    T withReadLockResult(const std::function<T()>& f) {
-        T result;
-        withReadLock([&] {
-            result = f();
-        });
-        return result;
-    }
+    virtual void setCullWithParent(bool value) { _cullWithParent = value; }
 
-signals:
-    void requestRenderUpdate();
-
-protected:
     template<typename T>
     std::shared_ptr<T> asTypedEntity() { return std::static_pointer_cast<T>(_entity); }
-        
 
     static void makeStatusGetters(const EntityItemPointer& entity, Item::Status::Getters& statusGetters);
     const Transform& getModelTransform() const;
+
+    Transform getTransformToCenterWithMaybeOnlyLocalRotation(const EntityItemPointer& entity, bool& success) const;
+
+    // Shared methods for entities that support materials
+    using MaterialMap = std::unordered_map<std::string, graphics::MultiMaterial>;
+    bool needsRenderUpdateFromMaterials() const;
+    void updateMaterials(bool baseMaterialChanged = false);
+    bool materialsTransparent() const;
+    Item::Bound getMaterialBound(RenderArgs* args);
+    void updateShapeKeyBuilderFromMaterials(ShapeKey::Builder& builder);
 
     Item::Bound _bound;
     SharedSoundPointer _collisionSound;
@@ -139,21 +144,20 @@ protected:
     bool _visible { false };
     bool _isVisibleInSecondaryCamera { false };
     bool _canCastShadow { false };
+    bool _cullWithParent { false };
     RenderLayer _renderLayer { RenderLayer::WORLD };
     PrimitiveMode _primitiveMode { PrimitiveMode::SOLID };
+    QVector<QUuid> _renderWithZones;
+    BillboardMode _billboardMode { BillboardMode::NONE };
     bool _cauterized { false };
     bool _moving { false };
-    bool _needsRenderUpdate { false };
-    // Only touched on the rendering thread
-    bool _renderUpdateQueued{ false };
     Transform _renderTransform;
 
-    std::unordered_map<std::string, graphics::MultiMaterial> _materials;
-    std::mutex _materialsLock;
+    MaterialMap _materials;
+    mutable std::mutex _materialsLock;
 
     quint64 _created;
 
-private:
     // The base class relies on comparing the model transform to the entity transform in order 
     // to trigger an update, so the member must not be visible to derived classes as a modifiable
     // transform
@@ -162,6 +166,11 @@ private:
     // i.e. to see if the rendering code needs to update because of a change in state of the 
     // entity.  This forces all the rendering code itself to be independent of the entity
     const EntityItemPointer _entity;
+
+    QUuid _entityID;
+
+signals:
+    void requestRenderUpdate();
 };
 
 template <typename T>
@@ -187,10 +196,7 @@ protected:
     using Parent::needsRenderUpdateFromEntity;
     // Returns true if the item in question needs to have updateInScene called because of changes in the entity
     virtual bool needsRenderUpdateFromEntity(const EntityItemPointer& entity) const override final {
-        if (Parent::needsRenderUpdateFromEntity(entity)) {
-            return true;
-        }
-        return needsRenderUpdateFromTypedEntity(_typedEntity);
+        return Parent::needsRenderUpdateFromEntity(entity) || needsRenderUpdateFromTypedEntity(_typedEntity);
     }
 
     virtual void doRenderUpdateSynchronous(const ScenePointer& scene, Transaction& transaction, const EntityItemPointer& entity) override final {

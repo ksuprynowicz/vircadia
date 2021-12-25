@@ -1,6 +1,10 @@
-# Linux build guide
+# Build Linux
+
+*Last Updated on December 1, 2020*
 
 Please read the [general build guide](BUILD.md) for information on dependencies required for all platforms. Only Linux specific instructions are found in this file.
+
+You can use the [Vircadia Builder](https://github.com/vircadia/vircadia-builder) to build on Linux more easily. Alternatively, you can follow the manual steps below.
 
 ## Ubuntu 16.04/18.04 specific build guide
 ### Ubuntu 16.04 only
@@ -14,88 +18,99 @@ sudo add-apt-repository universe
 sudo apt-get update
 ```
 #### Install build tools:
-1.  First update the repositiories:  
+-  First update the repositories:  
 ```bash
 sudo apt-get update -y
 sudo apt-get upgrade -y
 ```
-1.  git
+-  git
 ```bash
 sudo apt-get install git -y
 ```
 Verify by git --version  
-1.  g++
+-  g++
 ```bash
 sudo apt-get install g++ -y
 ```
 Verify by g++ --version  
-1.  *Ubuntu 18.04* cmake
+-  *Ubuntu 18.04* cmake
 ```bash
 sudo apt-get install cmake -y
 ```
-Verify by git --version  
-1. *Ubuntu 16.04* cmake  
+Verify by cmake --version  
+- *Ubuntu 16.04* cmake  
 ```bash
 wget https://cmake.org/files/v3.14/cmake-3.14.2-Linux-x86_64.sh
 sudo sh cmake-3.14.2-Linux-x86_64.sh --prefix=/usr/local --exclude-subdir
 ```
 #### Install build dependencies:
-1.  OpenSSL  
+-  OpenSSL:
 ```bash
 sudo apt-get install libssl-dev
 ```
 Verify with `openssl version`  
-1.  OpenGL  
-Verify (first install mesa-utils - `sudo apt install mesa-utils -y`) by `glxinfo | grep "OpenGL version"`  
+- OpenGL:
 ```bash
 sudo apt-get install libgl1-mesa-dev -y
 sudo ln -s /usr/lib/x86_64-linux-gnu/libGL.so.346.35 /usr/lib/x86_64-linux-gnu/libGL.so.1.2.0
 ```
+- Verify OpenGL:
+  - First install mesa-utils with the command `sudo apt install mesa-utils -y`
+  - Then run `glxinfo | grep "OpenGL version"`  
 #### To compile interface in a server you must install:
 ```bash
 sudo apt-get -y install libpulse0 libnss3 libnspr4 libfontconfig1 libxcursor1 libxcomposite1 libxtst6 libxslt1.1
 ```
-1.  Misc dependencies
+-  Misc dependencies:
 ```bash
 sudo apt-get install libasound2 libxmu-dev libxi-dev freeglut3-dev libasound2-dev libjack0 libjack-dev libxrandr-dev libudev-dev libssl-dev zlib1g-dev
 ```
-1.  To compile interface in a server you must install:
+-  Install Python 3 and required packages:
 ```bash
-sudo apt-get -y install libpulse0 libnss3 libnspr4 libfontconfig1 libxcursor1 libxcomposite1 libxtst6 libxslt1.1
+sudo apt-get install python python3 python3-distro
 ```
-1.  Install Python 3:
-```bash
-sudo apt-get install python3.6
-```
-1.  Install node, required to build the jsdoc documentation
+-  Install node, required to build the jsdoc documentation:
 ```bash
 sudo apt-get install nodejs
 ```
 
-### Get code and checkout the tag you need
+### Get code and checkout the branch you need
 
 Clone this repository:
 ```bash
-git clone https://github.com/highfidelity/hifi.git
+git clone https://github.com/vircadia/vircadia.git
 ```
 
-To compile a RELEASE version checkout the tag you need getting a list of all tags:
+To compile a DEV version checkout the branch you need. To get a list of all tags:
 ```bash
 git fetch -a
-git tags
 ```
 
-Then checkout last tag with:
+Then checkout the main branch with:
 ```bash
-git checkout tags/v0.79.0
+git checkout master
 ```
+
+### Using a custom Qt build
+
+Qt binaries are only provided for Ubuntu. In order to build on other distributions, a Qt5 install
+needs to be provided by setting the `VIRCADIA_QT_PATH` environment variable to a directory containing
+a Qt install.
+
+### Using the system's Qt
+
+The system's Qt can be used, if the development packages are installed, by setting the
+`VIRCADIA_USE_SYSTEM_QT` environment variable. The minimum recommended version is Qt 5.15.2, which is
+also the last version available in the Qt 5 branch. It is expected that Linux distributions will have
+Qt 5.15.2 available for a long time.
 
 ### Compiling
 
 Create the build directory:
 ```bash
-mkdir -p hifi/build
-cd hifi/build
+cd vircadia
+mkdir build
+cd build
 ```
 
 Prepare makefiles:
@@ -103,7 +118,7 @@ Prepare makefiles:
 cmake ..
 ```
 
-*  If cmake fails with a vcpkg error - delete /tmp/hifi/vcpkg.  
+- If cmake fails with a vcpkg error - delete /tmp/hifi/vcpkg.  
 
 Start compilation of the server and get a cup of coffee:
 ```bash
@@ -115,7 +130,15 @@ To compile interface:
 make interface
 ```
 
-In a server, it does not make sense to compile interface
+The commands above will compile with a single thread. If you have enough memory,
+you can decrease your build time using the `-j` flag. Since most x64 CPUs
+support two threads per core, this works out to CPU_COUNT*2. As an example, if
+you have a 2 core machine, you could use:
+```
+make -j4 interface
+```
+
+In a server, it does not make sense to compile interface.
 
 ### Running the software
 
@@ -142,38 +165,17 @@ Running interface:
 
 Go to localhost in the running interface.
 
-##### Ubuntu 18.04 only
+#### Notes
 
-In Ubuntu 18.04 there is a problem related with NVidia driver library version.
+If your goal is to set up a development environment, it is desirable to set the
+directory that vcpkg builds into with the `HIFI_VCPKG_BASE` environment variable.
+For example, you might set `HIFI_VCPKG_BASE` to `/home/$USER/vcpkg`.
+By default, vcpkg will build in the system `/tmp` directory.
 
-It can be worked around following these steps:
-
-1.  Uninstall incompatible nvtt libraries:  
-`sudo apt-get remove libnvtt2 libnvtt-dev`  
-
-1.  Install libssl1.0-dev:  
-`sudo apt-get -y install libssl1.0-dev`  
-
-1.  Clone castano nvidia-texture-tools:  
-`git clone https://github.com/castano/nvidia-texture-tools`  
-`cd nvidia-texture-tools/` 
-
-1.  Make these changes in repo:  
-* In file **VERSION** set `2.2.1`  
-* In file **configure**:  
-  * set `build="release"`  
-  * set `-DNVTT_SHARED=1`  
-
-1.  Configure, build and install:  
-`./configure`  
-`make`  
-`sudo make install`  
-
-1.. Link compiled files:  
-`sudo ln -s /usr/local/lib/libnvcore.so /usr/lib/libnvcore.so`  
-`sudo ln -s /usr/local/lib/libnvimage.so /usr/lib/libnvimage.so`  
-`sudo ln -s /usr/local/lib/libnvmath.so /usr/lib/libnvmath.so`  
-`sudo ln -s /usr/local/lib/libnvtt.so /usr/lib/libnvtt.so`  
-
-1.  After running this steps you can run interface:  
-`interface/interface`  
+If build is intended for packaging or creation of AppImage, `VIRCADIA_CPU_ARCHITECTURE`
+CMake variable needs to be set to architecture specific value.
+It defaults to `-march=native -mtune=native`, which yields builds optimized for particular
+machine, but builds will not work on machines lacking same CPU instructions.
+For packaging and AppImage it is recommended to set it to different value, for example `-msse3`.
+Setting `VIRCADIA_CPU_ARCHITECTURE` to empty string will use default compiler settings and yield
+maximum compatibility.

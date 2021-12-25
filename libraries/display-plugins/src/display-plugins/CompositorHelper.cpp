@@ -1,6 +1,7 @@
 //
 //  Created by Benjamin Arnold on 5/27/14.
 //  Copyright 2014 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -15,10 +16,10 @@
 
 #include <QtCore/QTimer>
 #include <QtCore/QThread>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QDesktopWidget>
+#include <QtGui/QGuiApplication>
+#include <QtGui/QScreen>
 #include <QtGui/QWindow>
-#include <QQuickWindow>
+#include <QtQuick/QQuickWindow>
 
 #include <DebugDraw.h>
 #include <shared/QtHelpers.h>
@@ -40,10 +41,10 @@ static const float reticleSize = TWO_PI / 100.0f;
 //EntityItemID CompositorHelper::_noItemId;
 static QString _tooltipId;
 
-const uvec2 CompositorHelper::VIRTUAL_SCREEN_SIZE = uvec2(3960, 1188); // ~10% more pixel density than old version, 72dx240d FOV
-const QRect CompositorHelper::VIRTUAL_SCREEN_RECOMMENDED_OVERLAY_RECT = QRect(956, 0, 2048, 1188); // don't include entire width only center 2048
+const uvec2 CompositorHelper::VIRTUAL_SCREEN_SIZE = uvec2(2640, 1188);
+const QRect CompositorHelper::VIRTUAL_SCREEN_RECOMMENDED_OVERLAY_RECT = QRect(296, 0, 2048, 1188);  // Center 2048 pixels.
 const float CompositorHelper::VIRTUAL_UI_ASPECT_RATIO = (float)VIRTUAL_SCREEN_SIZE.x / (float)VIRTUAL_SCREEN_SIZE.y;
-const vec2 CompositorHelper::VIRTUAL_UI_TARGET_FOV = vec2(PI * 3.0f / 2.0f, PI * 3.0f / 2.0f / VIRTUAL_UI_ASPECT_RATIO);
+const vec2 CompositorHelper::VIRTUAL_UI_TARGET_FOV = vec2(PI, PI / VIRTUAL_UI_ASPECT_RATIO);
 const vec2 CompositorHelper::MOUSE_EXTENTS_ANGULAR_SIZE = vec2(PI * 2.0f, PI * 0.95f); // horizontal: full sphere,  vertical: ~5deg from poles
 const vec2 CompositorHelper::MOUSE_EXTENTS_PIXELS = vec2(VIRTUAL_SCREEN_SIZE) * (MOUSE_EXTENTS_ANGULAR_SIZE / VIRTUAL_UI_TARGET_FOV);
 
@@ -177,9 +178,35 @@ QPointF CompositorHelper::getMouseEventPosition(QMouseEvent* event) {
     return event->localPos();
 }
 
+static bool isWindowActive() {
+    for (const auto& window : QGuiApplication::topLevelWindows()) {
+        if (window->isActive()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool CompositorHelper::shouldCaptureMouse() const {
+    if (!_allowMouseCapture) {
+        return false;
+    }
+
+    if (!isHMD()) {
+        return false;
+    }
+
+
+    if (!isWindowActive()) {
+        return false;
+    }
+
+    if (ui::Menu::isSomeSubmenuShown()) {
+        return false;
+    }
+
     // if we're in HMD mode, and some window of ours is active, but we're not currently showing a popup menu
-    return _allowMouseCapture && isHMD() && QApplication::activeWindow() && !ui::Menu::isSomeSubmenuShown();
+    return true;
 }
 
 void CompositorHelper::setAllowMouseCapture(bool capture) {
@@ -187,7 +214,6 @@ void CompositorHelper::setAllowMouseCapture(bool capture) {
         _allowMouseCapture = capture;
         emit allowMouseCaptureChanged();
     }
-    _allowMouseCapture = capture;
 }
 
 void CompositorHelper::handleLeaveEvent() {
@@ -206,9 +232,9 @@ void CompositorHelper::handleLeaveEvent() {
             mainWidgetFrame.moveTopLeft(topLeftScreen);
         }
         QRect uncoveredRect = mainWidgetFrame;
-        foreach(QWidget* widget, QApplication::topLevelWidgets()) {
-            if (widget->isWindow() && widget->isVisible() && widget != mainWidget) {
-                QRect widgetFrame = widget->frameGeometry();
+        for(QWindow* window : QGuiApplication::topLevelWindows()) {
+            if (window->isVisible() && window != mainWidget->windowHandle()) {
+                QRect widgetFrame = window->frameGeometry();
                 if (widgetFrame.intersects(uncoveredRect)) {
                     QRect intersection = uncoveredRect & widgetFrame;
                     if (intersection.top() > uncoveredRect.top()) {
@@ -292,7 +318,7 @@ glm::vec2 CompositorHelper::getReticleMaximumPosition() const {
     if (isHMD()) {
         result = VIRTUAL_SCREEN_SIZE;
     } else {
-        QRect rec = QApplication::desktop()->screenGeometry();
+        QRect rec = QGuiApplication::primaryScreen()->geometry();
         result = glm::vec2(rec.right(), rec.bottom());
     }
     return result;
@@ -308,8 +334,8 @@ void CompositorHelper::sendFakeMouseEvent() {
         // in HMD mode we need to fake our mouse moves...
         QPoint globalPos(_reticlePositionInHMD.x, _reticlePositionInHMD.y);
         auto button = Qt::NoButton;
-        auto buttons = QApplication::mouseButtons();
-        auto modifiers = QApplication::keyboardModifiers();
+        auto buttons = QGuiApplication::mouseButtons();
+        auto modifiers = QGuiApplication::keyboardModifiers();
         QMouseEvent event(QEvent::MouseMove, globalPos, button, buttons, modifiers);
         _fakeMouseEvent = true;
         qApp->sendEvent(_renderingWidget, &event);
@@ -358,9 +384,9 @@ bool CompositorHelper::calculateRayUICollisionPoint(const glm::vec3& position, c
     glm::vec3 localPosition = transformPoint(worldToUi, position);
     glm::vec3 localDirection = glm::normalize(transformVectorFast(worldToUi, direction));
 
-    const float UI_RADIUS = 1.0f;
+    const float UNIT_RADIUS = 1.0f;
     float intersectionDistance;
-    if (raySphereIntersect(localDirection, localPosition, UI_RADIUS, &intersectionDistance)) {
+    if (raySphereIntersect(localDirection, localPosition, UNIT_RADIUS, &intersectionDistance)) {
         result = transformPoint(uiToWorld, localPosition + localDirection * intersectionDistance);
 #ifdef WANT_DEBUG
         DebugDraw::getInstance().drawRay(position, result, glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
@@ -381,9 +407,8 @@ bool CompositorHelper::calculateParabolaUICollisionPoint(const glm::vec3& origin
     glm::vec3 localVelocity = glm::normalize(transformVectorFast(worldToUi, velocity));
     glm::vec3 localAcceleration = glm::normalize(transformVectorFast(worldToUi, acceleration));
 
-    const float UI_RADIUS = 1.0f;
     float intersectionDistance;
-    if (findParabolaSphereIntersection(localOrigin, localVelocity, localAcceleration, glm::vec3(0.0f), UI_RADIUS, intersectionDistance)) {
+    if (findParabolaSphereIntersection(localOrigin, localVelocity, localAcceleration, glm::vec3(0.0f), HUD_RADIUS, intersectionDistance)) {
         result = origin + velocity * intersectionDistance + 0.5f * acceleration * intersectionDistance * intersectionDistance;
         parabolicDistance = intersectionDistance;
         return true;

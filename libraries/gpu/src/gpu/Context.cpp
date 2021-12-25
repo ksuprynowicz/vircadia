@@ -205,7 +205,7 @@ double Context::getFrameTimerBatchAverage() const {
 const Backend::TransformCamera& Backend::TransformCamera::recomputeDerived(const Transform& xformView) const {
     _projectionInverse = glm::inverse(_projection);
 
-    // Get the viewEyeToWorld matrix form the transformView as passed to the gpu::Batch
+    // Get the viewEyeToWorld matrix from the transformView as passed to the gpu::Batch
     // this is the "_viewInverse" fed to the shader
     // Genetrate the "_view" matrix as well from the xform
     xformView.getMatrix(_viewInverse);
@@ -332,7 +332,7 @@ Size Context::getTextureResourcePopulatedGPUMemSize() {
 
 PipelinePointer Context::createMipGenerationPipeline(const ShaderPointer& ps) {
     auto vs = gpu::Shader::createVertex(shader::gpu::vertex::DrawViewportQuadTransformTexcoord);
-	static gpu::StatePointer state(new gpu::State());
+	static gpu::StatePointer state(std::make_shared<gpu::State>());
 
 	gpu::ShaderPointer program = gpu::Shader::createProgram(vs, ps);
 

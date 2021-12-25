@@ -64,7 +64,7 @@ EntityScriptServer::EntityScriptServer(ReceivedMessage& message) : ThreadedAssig
     DependencyManager::set<ResourceScriptingInterface>();
 
     DependencyManager::set<ResourceManager>();
-    DependencyManager::set<PluginManager>();
+    DependencyManager::set<PluginManager>()->instantiate();
 
     DependencyManager::registerInheritance<SpatialParentFinder, AssignmentParentFinder>();
 
@@ -83,15 +83,18 @@ EntityScriptServer::EntityScriptServer(ReceivedMessage& message) : ThreadedAssig
 
     auto& packetReceiver = DependencyManager::get<NodeList>()->getPacketReceiver();
     packetReceiver.registerListenerForTypes({ PacketType::OctreeStats, PacketType::EntityData, PacketType::EntityErase },
-                                            this, "handleOctreePacket");
-    packetReceiver.registerListener(PacketType::SelectedAudioFormat, this, "handleSelectedAudioFormat");
+                                            PacketReceiver::makeSourcedListenerReference<EntityScriptServer>(this, &EntityScriptServer::handleOctreePacket));
+    packetReceiver.registerListener(PacketType::SelectedAudioFormat,
+        PacketReceiver::makeUnsourcedListenerReference<EntityScriptServer>(this, &EntityScriptServer::handleSelectedAudioFormat));
 
-    auto avatarHashMap = DependencyManager::set<AvatarHashMap>();
-
-    packetReceiver.registerListener(PacketType::ReloadEntityServerScript, this, "handleReloadEntityServerScriptPacket");
-    packetReceiver.registerListener(PacketType::EntityScriptGetStatus, this, "handleEntityScriptGetStatusPacket");
-    packetReceiver.registerListener(PacketType::EntityServerScriptLog, this, "handleEntityServerScriptLogPacket");
-    packetReceiver.registerListener(PacketType::EntityScriptCallMethod, this, "handleEntityScriptCallMethodPacket");
+    packetReceiver.registerListener(PacketType::ReloadEntityServerScript,
+        PacketReceiver::makeSourcedListenerReference<EntityScriptServer>(this, &EntityScriptServer::handleReloadEntityServerScriptPacket));
+    packetReceiver.registerListener(PacketType::EntityScriptGetStatus,
+        PacketReceiver::makeSourcedListenerReference<EntityScriptServer>(this, &EntityScriptServer::handleEntityScriptGetStatusPacket));
+    packetReceiver.registerListener(PacketType::EntityServerScriptLog,
+        PacketReceiver::makeSourcedListenerReference<EntityScriptServer>(this, &EntityScriptServer::handleEntityServerScriptLogPacket));
+    packetReceiver.registerListener(PacketType::EntityScriptCallMethod,
+        PacketReceiver::makeSourcedListenerReference<EntityScriptServer>(this, &EntityScriptServer::handleEntityScriptCallMethodPacket));
 
     static const int LOG_INTERVAL = MSECS_PER_SECOND / 10;
     auto timer = new QTimer(this);
@@ -255,6 +258,7 @@ void EntityScriptServer::handleEntityScriptCallMethodPacket(QSharedPointer<Recei
 void EntityScriptServer::run() {
     DependencyManager::set<ScriptEngines>(ScriptEngine::ENTITY_SERVER_SCRIPT);
     DependencyManager::set<EntityScriptServerServices>();
+    DependencyManager::set<AvatarHashMap>();
 
     // make sure we request our script once the agent connects to the domain
     auto nodeList = DependencyManager::get<NodeList>();
@@ -301,10 +305,17 @@ void EntityScriptServer::run() {
 
     entityScriptingInterface->setEntityTree(_entityViewer.getTree());
 
-    DependencyManager::set<AssignmentParentFinder>(_entityViewer.getTree());
+    auto treePtr = _entityViewer.getTree();
+    DependencyManager::set<AssignmentParentFinder>(treePtr);
 
+    if (!_entitySimulation) {
+        SimpleEntitySimulationPointer simpleSimulation { new SimpleEntitySimulation() };
+        simpleSimulation->setEntityTree(treePtr);
+        treePtr->setSimulation(simpleSimulation);
+        _entitySimulation = simpleSimulation;
+    }
 
-    auto tree = _entityViewer.getTree().get();
+    auto tree = treePtr.get();
     connect(tree, &EntityTree::deletingEntity, this, &EntityScriptServer::deletingEntity, Qt::QueuedConnection);
     connect(tree, &EntityTree::addingEntity, this, &EntityScriptServer::addingEntity, Qt::QueuedConnection);
     connect(tree, &EntityTree::entityServerScriptChanging, this, &EntityScriptServer::entityServerScriptChanging, Qt::QueuedConnection);
@@ -388,10 +399,10 @@ void EntityScriptServer::nodeKilled(SharedNodePointer killedNode) {
 void EntityScriptServer::negotiateAudioFormat() {
     auto nodeList = DependencyManager::get<NodeList>();
     auto negotiateFormatPacket = NLPacket::create(PacketType::NegotiateAudioFormat);
-    auto codecPlugins = PluginManager::getInstance()->getCodecPlugins();
+    const auto& codecPlugins = PluginManager::getInstance()->getCodecPlugins();
     quint8 numberOfCodecs = (quint8)codecPlugins.size();
     negotiateFormatPacket->writePrimitive(numberOfCodecs);
-    for (auto& plugin : codecPlugins) {
+    for (const auto& plugin : codecPlugins) {
         auto codecName = plugin->getName();
         negotiateFormatPacket->writeString(codecName);
     }
@@ -422,8 +433,8 @@ void EntityScriptServer::selectAudioFormat(const QString& selectedCodecName) {
         _codec = nullptr;
     }
 
-    auto codecPlugins = PluginManager::getInstance()->getCodecPlugins();
-    for (auto& plugin : codecPlugins) {
+    const auto& codecPlugins = PluginManager::getInstance()->getCodecPlugins();
+    for (const auto& plugin : codecPlugins) {
         if (_selectedCodecName == plugin->getName()) {
             _codec = plugin;
             _encoder = plugin->createEncoder(AudioConstants::SAMPLE_RATE, AudioConstants::MONO);
@@ -441,6 +452,7 @@ void EntityScriptServer::resetEntitiesScriptEngine() {
     newEngine->globalObject().setProperty("WebSocketServer", webSocketServerConstructorValue);
 
     newEngine->registerGlobalObject("SoundCache", DependencyManager::get<SoundCacheScriptingInterface>().data());
+    newEngine->registerGlobalObject("AvatarList", DependencyManager::get<AvatarHashMap>().data());
 
     // connect this script engines printedMessage signal to the global ScriptEngines these various messages
     auto scriptEngines = DependencyManager::get<ScriptEngines>().data();
@@ -451,13 +463,16 @@ void EntityScriptServer::resetEntitiesScriptEngine() {
 
     connect(newEngine.data(), &ScriptEngine::update, this, [this] {
         _entityViewer.queryOctree();
+        _entityViewer.getTree()->preUpdate();
         _entityViewer.getTree()->update();
     });
 
-
+    scriptEngines->runScriptInitializers(newEngine);
     newEngine->runInThread();
     auto newEngineSP = qSharedPointerCast<EntitiesScriptEngineProvider>(newEngine);
-    DependencyManager::get<EntityScriptingInterface>()->setEntitiesScriptEngine(newEngineSP);
+    // On the entity script server, these are the same
+    DependencyManager::get<EntityScriptingInterface>()->setPersistentEntitiesScriptEngine(newEngineSP);
+    DependencyManager::get<EntityScriptingInterface>()->setNonPersistentEntitiesScriptEngine(newEngineSP);
 
     if (_entitiesScriptEngine) {
         disconnect(_entitiesScriptEngine.data(), &ScriptEngine::entityScriptDetailsUpdated,
@@ -548,7 +563,51 @@ void EntityScriptServer::checkAndCallPreload(const EntityItemID& entityID, bool 
 }
 
 void EntityScriptServer::sendStatsPacket() {
+    QJsonObject statsObject;
 
+    QJsonObject octreeStats;
+    octreeStats["elementCount"] = (double)OctreeElement::getNodeCount();
+    octreeStats["internalElementCount"] = (double)OctreeElement::getInternalNodeCount();
+    octreeStats["leafElementCount"] = (double)OctreeElement::getLeafNodeCount();
+    statsObject["octree_stats"] = octreeStats;
+
+    QJsonObject scriptEngineStats;
+    int numberRunningScripts = 0;
+    const auto scriptEngine = _entitiesScriptEngine;
+    if (scriptEngine) {
+        numberRunningScripts = scriptEngine->getNumRunningEntityScripts();
+    }
+    scriptEngineStats["number_running_scripts"] = numberRunningScripts;
+    statsObject["script_engine_stats"] = scriptEngineStats;
+    
+
+    auto nodeList = DependencyManager::get<NodeList>();
+    QJsonObject nodesObject;
+    nodeList->eachNode([&](const SharedNodePointer& node) {
+        QJsonObject clientStats;
+        const QString uuidString(uuidStringWithoutCurlyBraces(node->getUUID()));
+        clientStats["node_type"] = NodeType::getNodeTypeName(node->getType());
+        auto& nodeStats = node->getConnectionStats();
+
+        static const QString NODE_OUTBOUND_KBPS_STAT_KEY("outbound_kbit/s");
+        static const QString NODE_INBOUND_KBPS_STAT_KEY("inbound_kbit/s");
+
+        // add the key to ask the domain-server for a username replacement, if it has it
+        clientStats[USERNAME_UUID_REPLACEMENT_STATS_KEY] = uuidString;
+
+        clientStats[NODE_OUTBOUND_KBPS_STAT_KEY] = node->getOutboundKbps();
+        clientStats[NODE_INBOUND_KBPS_STAT_KEY] = node->getInboundKbps();
+
+        using namespace std::chrono;
+        const float statsPeriod = duration<float, seconds::period>(nodeStats.endTime - nodeStats.startTime).count();
+        clientStats["unreliable_packet/s"] = (nodeStats.sentUnreliablePackets + nodeStats.receivedUnreliablePackets) / statsPeriod;
+        clientStats["reliable_packet/s"] = (nodeStats.sentPackets + nodeStats.receivedPackets) / statsPeriod;
+
+        nodesObject[uuidString] = clientStats;
+    });
+
+    statsObject["nodes"] = nodesObject;
+    addPacketStatsAndSendStatsPacket(statsObject);
 }
 
 void EntityScriptServer::handleOctreePacket(QSharedPointer<ReceivedMessage> message, SharedNodePointer senderNode) {

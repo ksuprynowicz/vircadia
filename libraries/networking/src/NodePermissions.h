@@ -4,6 +4,7 @@
 //
 //  Created by Seth Alves on 2016-6-1.
 //  Copyright 2016 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -51,6 +52,9 @@ public:
     void setVerifiedUserName(QString userName) { _verifiedUserName = userName.toLower(); }
     const QString& getVerifiedUserName() const { return _verifiedUserName; }
 
+    void setVerifiedDomainUserName(QString userName) { _verifiedDomainUserName = userName.toLower(); }
+    const QString& getVerifiedDomainUserName() const { return _verifiedDomainUserName; }
+
     void setGroupID(QUuid groupID) { _groupID = groupID; if (!groupID.isNull()) { _groupIDSet = true; }}
     QUuid getGroupID() const { return _groupID; }
     bool isGroup() const { return _groupIDSet; }
@@ -76,7 +80,8 @@ public:
         canReplaceDomainContent = 128,
         canRezPermanentCertifiedEntities = 256,
         canRezTemporaryCertifiedEntities = 512,
-        canGetAndSetPrivateUserData = 1024
+        canGetAndSetPrivateUserData = 1024,
+        canRezAvatarEntities = 2048
     };
     Q_DECLARE_FLAGS(Permissions, Permission)
     Permissions permissions;
@@ -99,6 +104,7 @@ protected:
     QString _id;
     QUuid _rankID { QUuid() }; // 0 unless this is for a group
     QString _verifiedUserName;
+    QString _verifiedDomainUserName;
 
     bool _groupIDSet { false };
     QUuid _groupID;
@@ -113,7 +119,7 @@ public:
     NodePermissionsPointer& operator[](const NodePermissionsKey& key) {
         NodePermissionsKey dataKey(key.first.toLower(), key.second);
         if (0 == _data.count(dataKey)) {
-            _data[dataKey] = NodePermissionsPointer(new NodePermissions(key));
+            _data[dataKey] = std::make_shared<NodePermissions>(key);
         }
         return _data[dataKey];
     }

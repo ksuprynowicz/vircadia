@@ -54,7 +54,7 @@ Antialiasing::~Antialiasing() {
 const gpu::PipelinePointer& Antialiasing::getAntialiasingPipeline() {
     if (!_antialiasingPipeline) {
         gpu::ShaderPointer program = gpu::Shader::createProgram(shader::render_utils::program::fxaa);
-        gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer state = std::make_shared<gpu::State>();
 
         state->setDepthTest(false, false, gpu::LESS_EQUAL);
         PrepareStencil::testNoAA(*state);
@@ -69,7 +69,7 @@ const gpu::PipelinePointer& Antialiasing::getAntialiasingPipeline() {
 const gpu::PipelinePointer& Antialiasing::getBlendPipeline() {
     if (!_blendPipeline) {
         gpu::ShaderPointer program = gpu::Shader::createProgram(shader::render_utils::program::fxaa_blend);
-        gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer state = std::make_shared<gpu::State>();
         state->setDepthTest(false, false, gpu::LESS_EQUAL);
         PrepareStencil::testNoAA(*state);
 
@@ -139,6 +139,11 @@ void Antialiasing::run(const render::RenderContextPointer& renderContext, const 
 }
 #else
 
+void AntialiasingConfig::setAAMode(int mode) {
+    _mode = std::min((int)AntialiasingConfig::MODE_COUNT, std::max(0, mode)); // Just use unsigned?
+    emit dirty();
+}
+
 Antialiasing::Antialiasing(bool isSharpenEnabled) : 
     _isSharpenEnabled{ isSharpenEnabled } {
 }
@@ -153,7 +158,7 @@ const gpu::PipelinePointer& Antialiasing::getAntialiasingPipeline(const render::
    
     if (!_antialiasingPipeline) {
         gpu::ShaderPointer program = gpu::Shader::createProgram(shader::render_utils::program::taa);
-        gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer state = std::make_shared<gpu::State>();
         
         PrepareStencil::testNoAA(*state);
 
@@ -167,7 +172,7 @@ const gpu::PipelinePointer& Antialiasing::getAntialiasingPipeline(const render::
 const gpu::PipelinePointer& Antialiasing::getBlendPipeline() {
     if (!_blendPipeline) {
         gpu::ShaderPointer program = gpu::Shader::createProgram(shader::render_utils::program::fxaa_blend);
-        gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer state = std::make_shared<gpu::State>();
         PrepareStencil::testNoAA(*state);
         // Good to go add the brand new pipeline
         _blendPipeline = gpu::Pipeline::create(program, state);
@@ -178,7 +183,7 @@ const gpu::PipelinePointer& Antialiasing::getBlendPipeline() {
 const gpu::PipelinePointer& Antialiasing::getDebugBlendPipeline() {
     if (!_debugBlendPipeline) {
         gpu::ShaderPointer program = gpu::Shader::createProgram(shader::render_utils::program::taa_blend);
-        gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer state = std::make_shared<gpu::State>();
         PrepareStencil::testNoAA(*state);
 
 
@@ -189,6 +194,8 @@ const gpu::PipelinePointer& Antialiasing::getDebugBlendPipeline() {
 }
 
 void Antialiasing::configure(const Config& config) {
+    _mode = (AntialiasingConfig::Mode) config.getAAMode();
+
     _sharpen = config.sharpen * 0.25f;
     if (!_isSharpenEnabled) {
         _sharpen = 0.0f;
@@ -298,29 +305,33 @@ void Antialiasing::run(const render::RenderContextPointer& renderContext, const 
     });
 }
 
-
 void JitterSampleConfig::setIndex(int current) {
     _index = (current) % JitterSample::SEQUENCE_LENGTH;    
     emit dirty();
 }
 
-int JitterSampleConfig::cycleStopPauseRun() {
-    _state = (_state + 1) % 3;
+void JitterSampleConfig::setState(int state) {
+    _state = (state) % 3;
     switch (_state) {
-        case 0: {
-            return none();
-            break;
-        }
-        case 1: {
-            return pause();
-            break;
-        }
-        case 2:
-        default: {
-            return play();
-            break;
-        }
+    case 0: {
+        none();
+        break;
     }
+    case 1: {
+        pause();
+        break;
+    }
+    case 2:
+    default: {
+        play();
+        break;
+    }
+    }
+    emit dirty();
+}
+
+int JitterSampleConfig::cycleStopPauseRun() {
+    setState((_state + 1) % 3);
     return _state;
 }
 

@@ -13,6 +13,7 @@
 
 #include <PathUtils.h>
 #include <NetworkAccessManager.h>
+#include <NetworkingConstants.h>
 
 #include <DependencyManager.h>
 #include <hfm/ModelFormatRegistry.h>
@@ -45,6 +46,7 @@
 #include <QJsonArray>
 
 ModelBaker::ModelBaker(const QUrl& inputModelURL, const QString& bakedOutputDirectory, const QString& originalOutputDirectory, bool hasBeenBaked) :
+    _originalInputModelURL(inputModelURL),
     _modelURL(inputModelURL),
     _bakedOutputDir(bakedOutputDirectory),
     _originalOutputDir(originalOutputDirectory),
@@ -158,7 +160,7 @@ void ModelBaker::saveSourceModel() {
         // setup the request to follow re-directs and always hit the network
         networkRequest.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
         networkRequest.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
-        networkRequest.setHeader(QNetworkRequest::UserAgentHeader, HIGH_FIDELITY_USER_AGENT);
+        networkRequest.setHeader(QNetworkRequest::UserAgentHeader, NetworkingConstants::VIRCADIA_USER_AGENT);
 
         networkRequest.setUrl(_modelURL);
 
@@ -244,6 +246,12 @@ void ModelBaker::bakeSourceCopy() {
     
         // Begin hfm baking
         baker.run();
+
+        const auto& errors = baker.getDracoErrors();
+        if (std::find(errors.cbegin(), errors.cend(), true) != errors.cend()) {
+            handleError("Failed to finalize the baking of a draco Geometry node from model " + _modelURL.toString());
+            return;
+        }
 
         _hfmModel = baker.getHFMModel();
         _materialMapping = baker.getMaterialMapping();
@@ -436,8 +444,7 @@ void ModelBaker::abort() {
 
 bool ModelBaker::buildDracoMeshNode(FBXNode& dracoMeshNode, const QByteArray& dracoMeshBytes, const std::vector<hifi::ByteArray>& dracoMaterialList) {
     if (dracoMeshBytes.isEmpty()) {
-        handleError("Failed to finalize the baking of a draco Geometry node");
-        return false;
+        handleWarning("Empty mesh detected in model: '" + _modelURL.toString() + "'. It will be included in the baked output.");
     }
 
     FBXNode dracoNode;

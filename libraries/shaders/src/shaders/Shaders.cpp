@@ -31,12 +31,16 @@ static void initShadersResources() {
 namespace shader {
 
 #if defined(USE_GLES)
-static const Dialect DEFAULT_DIALECT = Dialect::glsl320es;
-#elif defined(Q_OS_MAC)
-static const Dialect DEFAULT_DIALECT = Dialect::glsl410;
+
+const Dialect DEFAULT_DIALECT = Dialect::glsl320es;
+
+#elif defined(Q_OS_MAC) 
+
+const Dialect DEFAULT_DIALECT = Dialect::glsl410;
+
 #else
-static const Dialect DEFAULT_DIALECT = Dialect::glsl450;
-#endif
+
+const Dialect DEFAULT_DIALECT = Dialect::glsl450;
 
 const std::vector<Dialect>& allDialects() {
     static const std::vector<Dialect> ALL_DIALECTS{ { DEFAULT_DIALECT } };
@@ -124,7 +128,6 @@ Source::Pointer Source::loadSource(uint32_t shaderId) {
     for (const auto& dialect : dialects) {
         result->dialectSources[dialect] = loadDialectSource(dialect, shaderId);
     }
-    result->reflection = result->dialectSources[DEFAULT_DIALECT].variantSources[Variant::Mono].reflection;
     return result;
 }
 
@@ -133,7 +136,6 @@ Source& Source::operator=(const Source& other) {
     name = other.name;
     dialectSources = other.dialectSources;
     replacements = other.replacements;
-    reflection = other.reflection;
     return *this;
 }
 
@@ -354,3 +356,4 @@ std::vector<std::string> Reflection::getNames(const LocationMap& locations) {
 }
 
 }  // namespace shader
+

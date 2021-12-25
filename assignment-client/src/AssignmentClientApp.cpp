@@ -4,6 +4,7 @@
 //
 //  Created by Seth Alves on 2/19/15.
 //  Copyright 2015 High Fidelity, Inc.
+//  Copyright 2021 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -22,6 +23,7 @@
 #include <HifiConfigVariantMap.h>
 #include <SharedUtil.h>
 #include <ShutdownEventListener.h>
+#include <shared/ScriptInitializerMixin.h>
 
 #include "Assignment.h"
 #include "AssignmentClient.h"
@@ -43,7 +45,7 @@ AssignmentClientApp::AssignmentClientApp(int argc, char* argv[]) :
 
     // parse command-line
     QCommandLineParser parser;
-    parser.setApplicationDescription("High Fidelity Assignment Client");
+    parser.setApplicationDescription("Vircadia Assignment Client");
     const QCommandLineOption helpOption = parser.addHelpOption();
     const QCommandLineOption versionOption = parser.addVersionOption();
 
@@ -53,8 +55,8 @@ AssignmentClientApp::AssignmentClientApp(int argc, char* argv[]) :
         type = static_cast<Assignment::Type>(static_cast<int>(type) + 1)) {
         typeDescription.append(QStringLiteral("\n%1 | %2").arg(QString::number(type), Assignment::typeToString(type)));
     }
-    const QCommandLineOption clientTypeOption(ASSIGNMENT_TYPE_OVERRIDE_OPTION, typeDescription, "type");
 
+    const QCommandLineOption clientTypeOption(ASSIGNMENT_TYPE_OVERRIDE_OPTION, typeDescription, "type");
     parser.addOption(clientTypeOption);
 
     const QCommandLineOption poolOption(ASSIGNMENT_POOL_OPTION, "set assignment pool", "pool-name");
@@ -97,6 +99,10 @@ AssignmentClientApp::AssignmentClientApp(int argc, char* argv[]) :
 
     const QCommandLineOption logDirectoryOption(ASSIGNMENT_LOG_DIRECTORY, "directory to store logs", "log-directory");
     parser.addOption(logDirectoryOption);
+
+    const QCommandLineOption disableDomainPortAutoDiscoveryOption(ASSIGNMENT_DISABLE_DOMAIN_AUTO_PORT_DISCOVERY,
+        "assignment clients automatically search for the domain server on the local machine, if networking is being managed, then disable automatic discovery of the domain server port");
+    parser.addOption(disableDomainPortAutoDiscoveryOption);
 
     const QCommandLineOption parentPIDOption(PARENT_PID_OPTION, "PID of the parent process", "parent-pid");
     parser.addOption(parentPIDOption);
@@ -150,11 +156,14 @@ AssignmentClientApp::AssignmentClientApp(int argc, char* argv[]) :
     }
 
     QString logDirectory;
-
     if (parser.isSet(logDirectoryOption)) {
         logDirectory = parser.value(logDirectoryOption);
     }
 
+    bool disableDomainPortAutoDiscovery = false;
+    if (parser.isSet(disableDomainPortAutoDiscoveryOption)) {
+        disableDomainPortAutoDiscovery = true;
+    }
 
     Assignment::Type requestAssignmentType = Assignment::AllTypes;
     if (argumentVariantMap.contains(ASSIGNMENT_TYPE_OVERRIDE_OPTION)) {
@@ -182,7 +191,7 @@ AssignmentClientApp::AssignmentClientApp(int argc, char* argv[]) :
     }
 
     QString assignmentServerHostname;
-    if (argumentVariantMap.contains(ASSIGNMENT_WALLET_DESTINATION_ID_OPTION)) {
+    if (argumentVariantMap.contains(CUSTOM_ASSIGNMENT_SERVER_HOSTNAME_OPTION)) {
         assignmentServerHostname = argumentVariantMap.value(CUSTOM_ASSIGNMENT_SERVER_HOSTNAME_OPTION).toString();
     }
     if (parser.isSet(assignmentServerHostnameOption)) {
@@ -191,7 +200,7 @@ AssignmentClientApp::AssignmentClientApp(int argc, char* argv[]) :
 
     // check for an overriden assignment server port
     quint16 assignmentServerPort = DEFAULT_DOMAIN_SERVER_PORT;
-    if (argumentVariantMap.contains(ASSIGNMENT_WALLET_DESTINATION_ID_OPTION)) {
+    if (argumentVariantMap.contains(CUSTOM_ASSIGNMENT_SERVER_PORT_OPTION)) {
         assignmentServerPort = argumentVariantMap.value(CUSTOM_ASSIGNMENT_SERVER_PORT_OPTION).toUInt();
     }
 
@@ -239,19 +248,25 @@ AssignmentClientApp::AssignmentClientApp(int argc, char* argv[]) :
 
     QThread::currentThread()->setObjectName("main thread");
 
+    LogHandler::getInstance().moveToThread(thread());
+    LogHandler::getInstance().setupRepeatedMessageFlusher();
+
     DependencyManager::registerInheritance<LimitedNodeList, NodeList>();
+    DependencyManager::set<ScriptInitializers>();
 
     if (numForks || minForks || maxForks) {
         AssignmentClientMonitor* monitor =  new AssignmentClientMonitor(numForks, minForks, maxForks,
                                                                         requestAssignmentType, assignmentPool, listenPort,
                                                                         childMinListenPort, walletUUID, assignmentServerHostname,
-                                                                        assignmentServerPort, httpStatusPort, logDirectory);
+                                                                        assignmentServerPort, httpStatusPort, logDirectory,
+                                                                        disableDomainPortAutoDiscovery);
         monitor->setParent(this);
         connect(this, &QCoreApplication::aboutToQuit, monitor, &AssignmentClientMonitor::aboutToQuit);
     } else {
         AssignmentClient* client = new AssignmentClient(requestAssignmentType, assignmentPool, listenPort,
                                                         walletUUID, assignmentServerHostname,
-                                                        assignmentServerPort, monitorPort);
+                                                        assignmentServerPort, monitorPort,
+                                                        disableDomainPortAutoDiscovery);
         client->setParent(this);
         connect(this, &QCoreApplication::aboutToQuit, client, &AssignmentClient::aboutToQuit);
     }

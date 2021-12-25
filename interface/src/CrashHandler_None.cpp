@@ -17,12 +17,18 @@
 
 #include <QDebug>
 
+
+Q_LOGGING_CATEGORY(crash_handler, "vircadia.crash_handler")
+
 bool startCrashHandler(std::string appPath) {
-    qDebug() << "No crash handler available.";
+    qCWarning(crash_handler) << "No crash handler available.";
     return false;
 }
 
 void setCrashAnnotation(std::string name, std::string value) {
+}
+
+void startCrashHookMonitor(QCoreApplication* app) {
 }
 
 #endif

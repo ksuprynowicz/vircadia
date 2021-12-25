@@ -84,7 +84,7 @@ Agent::Agent(ReceivedMessage& message) :
     DependencyManager::get<EntityScriptingInterface>()->setPacketSender(&_entityEditSender);
 
     DependencyManager::set<ResourceManager>();
-    DependencyManager::set<PluginManager>();
+    DependencyManager::set<PluginManager>()->instantiate();
 
     DependencyManager::registerInheritance<SpatialParentFinder, AssignmentParentFinder>();
 
@@ -112,11 +112,12 @@ Agent::Agent(ReceivedMessage& message) :
 
     packetReceiver.registerListenerForTypes(
         { PacketType::MixedAudio, PacketType::SilentAudioFrame },
-        this, "handleAudioPacket");
+        PacketReceiver::makeUnsourcedListenerReference<Agent>(this, &Agent::handleAudioPacket));
     packetReceiver.registerListenerForTypes(
         { PacketType::OctreeStats, PacketType::EntityData, PacketType::EntityErase },
-        this, "handleOctreePacket");
-    packetReceiver.registerListener(PacketType::SelectedAudioFormat, this, "handleSelectedAudioFormat");
+        PacketReceiver::makeSourcedListenerReference<Agent>(this, &Agent::handleOctreePacket));
+    packetReceiver.registerListener(PacketType::SelectedAudioFormat,
+        PacketReceiver::makeUnsourcedListenerReference<Agent>(this, &Agent::handleSelectedAudioFormat));
 
     // 100Hz timer for audio
     const int TARGET_INTERVAL_MSEC = 10; // 10ms
@@ -287,10 +288,10 @@ void Agent::nodeKilled(SharedNodePointer killedNode) {
 void Agent::negotiateAudioFormat() {
     auto nodeList = DependencyManager::get<NodeList>();
     auto negotiateFormatPacket = NLPacket::create(PacketType::NegotiateAudioFormat);
-    auto codecPlugins = PluginManager::getInstance()->getCodecPlugins();
+    const auto& codecPlugins = PluginManager::getInstance()->getCodecPlugins();
     quint8 numberOfCodecs = (quint8)codecPlugins.size();
     negotiateFormatPacket->writePrimitive(numberOfCodecs);
-    for (auto& plugin : codecPlugins) {
+    for (const auto& plugin : codecPlugins) {
         auto codecName = plugin->getName();
         negotiateFormatPacket->writeString(codecName);
     }
@@ -325,8 +326,8 @@ void Agent::selectAudioFormat(const QString& selectedCodecName) {
     }
     _receivedAudioStream.cleanupCodec();
 
-    auto codecPlugins = PluginManager::getInstance()->getCodecPlugins();
-    for (auto& plugin : codecPlugins) {
+    const auto& codecPlugins = PluginManager::getInstance()->getCodecPlugins();
+    for (const auto& plugin : codecPlugins) {
         if (_selectedCodecName == plugin->getName()) {
             _codec = plugin;
             _receivedAudioStream.setupCodec(plugin, _selectedCodecName, AudioConstants::STEREO);
@@ -376,7 +377,6 @@ void Agent::executeScript() {
         // setup an Avatar for the script to use
         auto scriptedAvatar = DependencyManager::get<ScriptableAvatar>();
         scriptedAvatar->setID(getSessionUUID());
-        scriptedAvatar->setForceFaceTrackerConnected(true);
 
         // call model URL setters with empty URLs so our avatar, if user, will have the default models
         scriptedAvatar->setSkeletonModelURL(QUrl());
@@ -400,6 +400,7 @@ void Agent::executeScript() {
                 }
 
                 // these procedural movements are included in the recordings
+                scriptedAvatar->setHasScriptedBlendshapes(true);
                 scriptedAvatar->setHasProceduralEyeFaceMovement(false);
                 scriptedAvatar->setHasProceduralBlinkFaceMovement(false);
                 scriptedAvatar->setHasAudioEnabledFaceMovement(false);
@@ -407,6 +408,7 @@ void Agent::executeScript() {
                 scriptedAvatar->clearRecordingBasis();
 
                 // restore procedural blendshape movement
+                scriptedAvatar->setHasScriptedBlendshapes(false);
                 scriptedAvatar->setHasProceduralEyeFaceMovement(true);
                 scriptedAvatar->setHasProceduralBlinkFaceMovement(true);
                 scriptedAvatar->setHasAudioEnabledFaceMovement(true);
@@ -433,7 +435,7 @@ void Agent::executeScript() {
 
         using namespace recording;
         static const FrameType AUDIO_FRAME_TYPE = Frame::registerFrameType(AudioConstants::getAudioFrameName());
-        Frame::registerFrameHandler(AUDIO_FRAME_TYPE, [this, &scriptedAvatar](Frame::ConstPointer frame) {
+        Frame::registerFrameHandler(AUDIO_FRAME_TYPE, [this, &player, &scriptedAvatar](Frame::ConstPointer frame) {
             if (_shouldMuteRecordingAudio) {
                 return;
             }
@@ -442,9 +444,18 @@ void Agent::executeScript() {
 
             QByteArray audio(frame->data);
 
+            int16_t* samples = reinterpret_cast<int16_t*>(audio.data());
+            int numSamples = AudioConstants::NETWORK_FRAME_SAMPLES_PER_CHANNEL;
+
+            auto volume = player->getVolume();
+            if (volume >= 0.0f && volume < 1.0f) {
+                int32_t fract = (int32_t)(volume * (float)(1 << 16));   // Q16
+                for (int i = 0; i < numSamples; i++) {
+                    samples[i] = (fract * (int32_t)samples[i]) >> 16;
+                }
+            }
+
             if (_isNoiseGateEnabled) {
-                int16_t* samples = reinterpret_cast<int16_t*>(audio.data());
-                int numSamples = AudioConstants::NETWORK_FRAME_SAMPLES_PER_CHANNEL;
                 _audioGate.render(samples, samples, numSamples);
             }
 
@@ -511,6 +522,7 @@ void Agent::executeScript() {
 
         DependencyManager::set<AssignmentParentFinder>(_entityViewer.getTree());
 
+        DependencyManager::get<ScriptEngines>()->runScriptInitializers(_scriptEngine);
         _scriptEngine->run();
 
         Frame::clearFrameHandler(AUDIO_FRAME_TYPE);
@@ -603,6 +615,10 @@ void Agent::setIsAvatar(bool isAvatar) {
             _avatarQueryTimer->stop();
             delete _avatarQueryTimer;
             _avatarQueryTimer = nullptr;
+
+            // Clear the skeleton model so that if agent is set to an avatar again the skeleton model is (re)loaded.
+            auto scriptedAvatar = DependencyManager::get<ScriptableAvatar>();
+            scriptedAvatar->setSkeletonModelURL(QUrl());
 
             // The avatar mixer never times out a connection (e.g., based on identity or data packets)
             // but rather keeps avatars in its list as long as "connected". As a result, clients timeout

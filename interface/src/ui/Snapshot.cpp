@@ -41,14 +41,13 @@
 #include "MainWindow.h"
 #include "Snapshot.h"
 #include "SnapshotUploader.h"
-#include "ToneMappingEffect.h"
 
-// filename format: hifi-snap-by-%username%-on-%date%_%time%_@-%location%.jpg
+// filename format: vircadia-snap-by-%username%-on-%date%_%time%_@-%location%.jpg
 // %1 <= username, %2 <= date and time, %3 <= current location
-const QString FILENAME_PATH_FORMAT = "hifi-snap-by-%1-on-%2.jpg";
+const QString FILENAME_PATH_FORMAT = "vircadia-snap-by-%1-on-%2.jpg";
 const QString DATETIME_FORMAT = "yyyy-MM-dd_hh-mm-ss";
 const QString SNAPSHOTS_DIRECTORY = "Snapshots";
-const QString URL = "highfidelity_url";
+const QString URL = "vircadia_url";
 static const int SNAPSHOT_360_TIMER_INTERVAL = 350;
 static const QList<QString> SUPPORTED_IMAGE_FORMATS = { "jpg", "jpeg", "png" };
 
@@ -143,10 +142,6 @@ void Snapshot::save360Snapshot(const glm::vec3& cameraPosition,
         secondaryCameraRenderConfig->enableSecondaryCameraRenderConfigs(true);
     }
 
-    // Initialize some secondary camera render config options for 360 snapshot capture
-    static_cast<ToneMappingConfig*>(qApp->getRenderEngine()->getConfiguration()->getConfig("SecondaryCameraJob.ToneMapping"))
-        ->setCurve(0);
-
     secondaryCameraRenderConfig->resetSizeSpectatorCamera(static_cast<int>(CUBEMAP_SIDE_PIXEL_DIMENSION),
                                                           static_cast<int>(CUBEMAP_SIDE_PIXEL_DIMENSION));
     secondaryCameraRenderConfig->setProperty("attachedEntityId", "");
@@ -209,7 +204,6 @@ void Snapshot::takeNextSnapshot() {
 
         // Reset secondary camera render config
         SecondaryCameraJobConfig* config = static_cast<SecondaryCameraJobConfig*>(qApp->getRenderEngine()->getConfiguration()->getConfig("SecondaryCamera"));
-        static_cast<ToneMappingConfig*>(qApp->getRenderEngine()->getConfiguration()->getConfig("SecondaryCameraJob.ToneMapping"))->setCurve(1);
         config->resetSizeSpectatorCamera(qApp->getWindow()->geometry().width(), qApp->getWindow()->geometry().height());
         config->setProperty("attachedEntityId", _oldAttachedEntityId);
         config->setProperty("vFoV", _oldvFoV);

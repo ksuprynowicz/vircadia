@@ -25,7 +25,8 @@ OctreePacketProcessor::OctreePacketProcessor():
     auto& packetReceiver = DependencyManager::get<NodeList>()->getPacketReceiver();
     const PacketReceiver::PacketTypeList octreePackets =
         { PacketType::OctreeStats, PacketType::EntityData, PacketType::EntityErase, PacketType::EntityQueryInitialResultsComplete };
-    packetReceiver.registerDirectListenerForTypes(octreePackets, this, "handleOctreePacket");
+    packetReceiver.registerDirectListenerForTypes(octreePackets,
+        PacketReceiver::makeSourcedListenerReference<OctreePacketProcessor>(this, &OctreePacketProcessor::handleOctreePacket));
 }
 
 OctreePacketProcessor::~OctreePacketProcessor() { }
@@ -114,7 +115,11 @@ void OctreePacketProcessor::processPacket(QSharedPointer<ReceivedMessage> messag
                 if (renderer) {
                     renderer->processDatagram(*message, sendingNode);
                     if (_safeLanding && _safeLanding->isTracking()) {
-                        _safeLanding->addToSequence(renderer->getLastOctreeMessageSequence());
+                        OCTREE_PACKET_SEQUENCE thisSequence = renderer->getLastOctreeMessageSequence();
+                        _safeLanding->addToSequence(thisSequence);
+                        if (_safeLandingSequenceStart == SafeLanding::INVALID_SEQUENCE) {
+                            _safeLandingSequenceStart = thisSequence;
+                        }
                     }
                 }
             }
@@ -124,8 +129,8 @@ void OctreePacketProcessor::processPacket(QSharedPointer<ReceivedMessage> messag
             // Read sequence #
             OCTREE_PACKET_SEQUENCE completionNumber;
             message->readPrimitive(&completionNumber);
-            if (_safeLanding) {
-                _safeLanding->finishSequence(0, completionNumber);
+            if (_safeLanding && _safeLanding->isTracking()) {
+                _safeLanding->finishSequence(_safeLandingSequenceStart, completionNumber);
             }
         } break;
 
@@ -151,6 +156,13 @@ void OctreePacketProcessor::stopSafeLanding() {
     if (_safeLanding) {
         _safeLanding->stopTracking();
     }
+}
+
+void OctreePacketProcessor::resetSafeLanding() {
+    if (_safeLanding) {
+        _safeLanding->reset();
+    }
+    _safeLandingSequenceStart = SafeLanding::INVALID_SEQUENCE;
 }
 
 bool OctreePacketProcessor::safeLandingIsActive() const {

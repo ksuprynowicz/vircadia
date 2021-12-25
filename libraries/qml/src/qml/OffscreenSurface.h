@@ -17,7 +17,6 @@
 #include <QtCore/QUrl>
 #include <QtCore/QSize>
 #include <QtCore/QPointF>
-#include <QtCore/QSharedPointer>
 #include <QtCore/QTimer>
 
 #include <QtQml/QJSValue>
@@ -111,6 +110,7 @@ signals:
     void rootItemCreated(QQuickItem* rootContext);
 
 protected:
+    virtual void loadFromQml(const QUrl& qmlSource, QQuickItem* parent, const QJSValue& callback);
     bool eventFilter(QObject* originalDestination, QEvent* event) override;
     bool filterEnabled(QObject* originalDestination, QEvent* event) const;
 

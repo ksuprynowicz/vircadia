@@ -25,14 +25,12 @@ public:
     ParticleEffectEntityRenderer(const EntityItemPointer& entity);
 
 protected:
-    virtual bool needsRenderUpdateFromTypedEntity(const TypedEntityPointer& entity) const override;
-
     virtual void doRenderUpdateSynchronousTyped(const ScenePointer& scene, Transaction& transaction, const TypedEntityPointer& entity) override;
     virtual void doRenderUpdateAsynchronousTyped(const TypedEntityPointer& entity) override;
 
     virtual ItemKey getKey() override;
     virtual ShapeKey getShapeKey() override;
-    virtual Item::Bound getBound() override;
+    virtual Item::Bound getBound(RenderArgs* args) override;
     virtual void doRender(RenderArgs* args) override;
 
 private:
@@ -90,7 +88,7 @@ private:
         glm::mat4 transform;
     } _triangleInfo;
 
-    static CpuParticle createParticle(uint64_t now, const Transform& baseTransform, const particle::Properties& particleProperties,
+    static CpuParticle createParticle(const Transform& baseTransform, const particle::Properties& particleProperties,
                                       const ShapeType& shapeType, const GeometryResource::Pointer& geometryResource,
                                       const TriangleInfo& triangleInfo);
     void stepSimulation();
@@ -113,6 +111,7 @@ private:
     GeometryResource::Pointer _geometryResource;
 
     NetworkTexturePointer _networkTexture;
+    bool _textureLoaded { false };
     ScenePointer _scene;
 };
 

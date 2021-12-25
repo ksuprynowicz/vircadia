@@ -4,7 +4,7 @@ set(EXTERNAL_NAME steamworks)
 
 string(TOUPPER ${EXTERNAL_NAME} EXTERNAL_NAME_UPPER)
 
-set(STEAMWORKS_URL "https://public.highfidelity.com/dependencies/steamworks_sdk_137.zip")
+set(STEAMWORKS_URL "${EXTERNAL_BUILD_ASSETS}/dependencies/steamworks_sdk_137.zip")
 set(STEAMWORKS_URL_MD5 "95ba9d0e3ddc04f8a8be17d2da806cbb")
 
 ExternalProject_Add(
@@ -54,7 +54,7 @@ elseif(APPLE)
       LOG 1
     )
 
-elseif(NOT ANDROID)
+elseif(NOT ANDROID AND NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 
     # FIXME need to account for different architectures
     set(${EXTERNAL_NAME_UPPER}_LIBRARY_RELEASE ${SOURCE_DIR}/redistributable_bin/linux64/libsteam_api.so CACHE STRING INTERNAL)

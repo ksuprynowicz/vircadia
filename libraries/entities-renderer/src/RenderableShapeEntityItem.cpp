@@ -12,17 +12,11 @@
 
 #include <gpu/Batch.h>
 #include <DependencyManager.h>
-#include <StencilMaskPass.h>
 #include <GeometryCache.h>
 #include <PerfStat.h>
-#include <shaders/Shaders.h>
 
 #include "RenderPipelines.h"
 
-//#define SHAPE_ENTITY_USE_FADE_EFFECT
-#ifdef SHAPE_ENTITY_USE_FADE_EFFECT
-#include <FadeEffect.h>
-#endif
 using namespace render;
 using namespace render::entities;
 
@@ -30,269 +24,137 @@ using namespace render::entities;
 // is a half unit sphere.  However, the geometry cache renders a UNIT sphere, so we need to scale down.
 static const float SPHERE_ENTITY_SCALE = 0.5f;
 
-static_assert(shader::render_utils::program::simple != 0, "Validate simple program exists");
-static_assert(shader::render_utils::program::simple_transparent != 0, "Validate simple transparent program exists");
-
 ShapeEntityRenderer::ShapeEntityRenderer(const EntityItemPointer& entity) : Parent(entity) {
-    _procedural._vertexSource = gpu::Shader::getVertexShaderSource(shader::render_utils::vertex::simple);
-    // FIXME: Setup proper uniform slots and use correct pipelines for forward rendering
-    _procedural._opaqueFragmentSource = gpu::Shader::Source::get(shader::render_utils::fragment::simple);
-    _procedural._transparentFragmentSource = gpu::Shader::Source::get(shader::render_utils::fragment::simple_transparent);
-
-    // TODO: move into Procedural.cpp
-    PrepareStencil::testMaskDrawShape(*_procedural._opaqueState);
-    PrepareStencil::testMask(*_procedural._transparentState);
-
     addMaterial(graphics::MaterialLayer(_material, 0), "0");
 }
 
 bool ShapeEntityRenderer::needsRenderUpdate() const {
-    if (resultWithReadLock<bool>([&] {
-        if (_procedural.isEnabled() && _procedural.isFading()) {
-            return true;
-        }
-
-        auto mat = _materials.find("0");
-        if (mat != _materials.end() && mat->second.shouldUpdate()) {
-            return true;
-        }
-
-        return false;
-    })) {
-        return true;
-    }
-
-    return Parent::needsRenderUpdate();
-}
-
-bool ShapeEntityRenderer::needsRenderUpdateFromTypedEntity(const TypedEntityPointer& entity) const {
-    if (_lastUserData != entity->getUserData()) {
-        return true;
-    }
-
-    if (_color != toGlm(entity->getColor())) {
-        return true;
-    }
-    if (_alpha != entity->getAlpha()) {
-        return true;
-    }
-
-    if (_shape != entity->getShape()) {
-        return true;
-    }
-
-    if (_dimensions != entity->getScaledDimensions()) {
-        return true;
-    }
-
-    if (_pulseProperties != entity->getPulseProperties()) {
-        return true;
-    }
-
-    return false;
+    return needsRenderUpdateFromMaterials() || Parent::needsRenderUpdate();
 }
 
 void ShapeEntityRenderer::doRenderUpdateSynchronousTyped(const ScenePointer& scene, Transaction& transaction, const TypedEntityPointer& entity) {
-    withWriteLock([&] {
-        auto userData = entity->getUserData();
-        if (_lastUserData != userData) {
-            _lastUserData = userData;
-            _procedural.setProceduralData(ProceduralData::parse(_lastUserData));
-        }
-
-        _shape = entity->getShape();
-        _pulseProperties = entity->getPulseProperties();
-    });
-
     void* key = (void*)this;
-    AbstractViewStateInterface::instance()->pushPostUpdateLambda(key, [this] () {
+    AbstractViewStateInterface::instance()->pushPostUpdateLambda(key, [this, entity] {
         withWriteLock([&] {
-            auto entity = getEntity();
-            _position = entity->getWorldPosition();
-            _dimensions = entity->getUnscaledDimensions(); // get unscaled to avoid scaling twice
-            _orientation = entity->getWorldOrientation();
-            updateModelTransformAndBound();
+            _shape = entity->getShape();
             _renderTransform = getModelTransform(); // contains parent scale, if this entity scales with its parent
             if (_shape == entity::Sphere) {
                 _renderTransform.postScale(SPHERE_ENTITY_SCALE);
             }
 
-            _renderTransform.postScale(_dimensions);
-        });;
+            _renderTransform.postScale(entity->getUnscaledDimensions());
+        });
     });
 }
 
 void ShapeEntityRenderer::doRenderUpdateAsynchronousTyped(const TypedEntityPointer& entity) {
-    withReadLock([&] {
-        if (_procedural.isEnabled() && _procedural.isFading()) {
-            float isFading = Interpolate::calculateFadeRatio(_procedural.getFadeStartTime()) < 1.0f;
-            _procedural.setIsFading(isFading);
-        }
-    });
+    _pulseProperties = entity->getPulseProperties();
 
+    bool materialChanged = false;
     glm::vec3 color = toGlm(entity->getColor());
-    float alpha = entity->getAlpha();
-    if (_color != color || _alpha != alpha) {
+    if (_color != color) {
         _color = color;
-        _alpha = alpha;
         _material->setAlbedo(color);
-        _material->setOpacity(_alpha);
-
-        auto materials = _materials.find("0");
-        if (materials != _materials.end()) {
-            materials->second.setNeedsUpdate(true);
-        }
+        materialChanged = true;
     }
+
+    float alpha = entity->getAlpha();
+    if (_alpha != alpha) {
+        _alpha = alpha;
+        _material->setOpacity(alpha);
+        materialChanged = true;
+    }
+
+    auto userData = entity->getUserData();
+    if (_proceduralData != userData) {
+        _proceduralData = userData;
+        _material->setProceduralData(_proceduralData);
+        materialChanged = true;
+    }
+
+    updateMaterials(materialChanged);
 }
 
 bool ShapeEntityRenderer::isTransparent() const {
-    if (_pulseProperties.getAlphaMode() != PulseMode::NONE) {
-        return true;
-    }
-
-    if (_procedural.isEnabled() && _procedural.isFading()) {
-        return Interpolate::calculateFadeRatio(_procedural.getFadeStartTime()) < 1.0f;
-    }
-
-    auto mat = _materials.find("0");
-    if (mat != _materials.end()) {
-        if (mat->second.getMaterialKey().isTranslucent()) {
-            return true;
-        }
-    }
-
-    return Parent::isTransparent();
+    return _pulseProperties.getAlphaMode() != PulseMode::NONE || Parent::isTransparent() || materialsTransparent();
 }
 
-bool ShapeEntityRenderer::useMaterialPipeline(const graphics::MultiMaterial& materials) const {
-    bool proceduralReady = resultWithReadLock<bool>([&] {
-        return _procedural.isReady();
-    });
-    if (proceduralReady) {
-        return false;
-    }
-
-    graphics::MaterialKey drawMaterialKey = materials.getMaterialKey();
-    if (drawMaterialKey.isEmissive() || drawMaterialKey.isUnlit() || drawMaterialKey.isMetallic() || drawMaterialKey.isScattering()) {
-        return true;
-    }
-
-    // If the material is using any map, we need to use a material ShapeKey
-    for (int i = 0; i < graphics::Material::MapChannel::NUM_MAP_CHANNELS; i++) {
-        if (drawMaterialKey.isMapChannel(graphics::Material::MapChannel(i))) {
-            return true;
-        }
-    }
-    return false;
+Item::Bound ShapeEntityRenderer::getBound(RenderArgs* args) {
+    return Parent::getMaterialBound(args);
 }
 
 ShapeKey ShapeEntityRenderer::getShapeKey() {
-    auto mat = _materials.find("0");
-    if (mat != _materials.end() && mat->second.shouldUpdate()) {
-        RenderPipelines::updateMultiMaterial(mat->second);
-    }
-
-    if (mat != _materials.end() && useMaterialPipeline(mat->second)) {
-        graphics::MaterialKey drawMaterialKey = mat->second.getMaterialKey();
-
-        bool isTranslucent = drawMaterialKey.isTranslucent();
-        bool hasTangents = drawMaterialKey.isNormalMap();
-        bool hasLightmap = drawMaterialKey.isLightMap();
-        bool isUnlit = drawMaterialKey.isUnlit();
-
-        ShapeKey::Builder builder;
-        builder.withMaterial();
-
-        if (isTranslucent) {
-            builder.withTranslucent();
-        }
-        if (hasTangents) {
-            builder.withTangents();
-        }
-        if (hasLightmap) {
-            builder.withLightMap();
-        }
-        if (isUnlit) {
-            builder.withUnlit();
-        }
-
-        if (_primitiveMode == PrimitiveMode::LINES) {
-            builder.withWireframe();
-        }
-
-        return builder.build();
-    } else {
-        ShapeKey::Builder builder;
-        bool proceduralReady = resultWithReadLock<bool>([&] {
-            return _procedural.isReady();
-        });
-        if (proceduralReady) {
-            builder.withOwnPipeline();
-        }
-        if (isTransparent()) {
-            builder.withTranslucent();
-        }
-
-        if (_primitiveMode == PrimitiveMode::LINES) {
-            builder.withWireframe();
-        }
-        return builder.build();
-    }
+    ShapeKey::Builder builder;
+    updateShapeKeyBuilderFromMaterials(builder);
+    return builder.build();
 }
 
 void ShapeEntityRenderer::doRender(RenderArgs* args) {
     PerformanceTimer perfTimer("RenderableShapeEntityItem::render");
     Q_ASSERT(args->_batch);
 
-    gpu::Batch& batch = *args->_batch;
-
     graphics::MultiMaterial materials;
-    auto geometryCache = DependencyManager::get<GeometryCache>();
-    GeometryCache::Shape geometryShape;
-    PrimitiveMode primitiveMode;
-    RenderLayer renderLayer;
-    bool proceduralRender = false;
-    glm::vec4 outColor;
-    withReadLock([&] {
-        geometryShape = geometryCache->getShapeForEntityShape(_shape);
-        primitiveMode = _primitiveMode;
-        renderLayer = _renderLayer;
-        batch.setModelTransform(_renderTransform); // use a transform with scale, rotation, registration point and translation
+    {
+        std::lock_guard<std::mutex> lock(_materialsLock);
         materials = _materials["0"];
-        auto& schema = materials.getSchemaBuffer().get<graphics::MultiMaterial::Schema>();
-        outColor = glm::vec4(ColorUtils::tosRGBVec3(schema._albedo), schema._opacity);
-        outColor = EntityRenderer::calculatePulseColor(outColor, _pulseProperties, _created);
-        if (_procedural.isReady()) {
-            outColor = _procedural.getColor(outColor);
-            outColor.a *= _procedural.isFading() ? Interpolate::calculateFadeRatio(_procedural.getFadeStartTime()) : 1.0f;
-            _procedural.prepare(batch, _position, _dimensions, _orientation, _created, ProceduralProgramKey(outColor.a < 1.0f));
-            proceduralRender = true;
-        }
-    });
+    }
+
+    auto& schema = materials.getSchemaBuffer().get<graphics::MultiMaterial::Schema>();
+    glm::vec4 outColor = glm::vec4(ColorUtils::tosRGBVec3(schema._albedo), schema._opacity);
+    outColor = EntityRenderer::calculatePulseColor(outColor, _pulseProperties, _created);
 
     if (outColor.a == 0.0f) {
         return;
     }
 
-    if (proceduralRender) {
-        if (render::ShapeKey(args->_globalShapeKey).isWireframe() || primitiveMode == PrimitiveMode::LINES) {
+    gpu::Batch& batch = *args->_batch;
+
+    auto geometryCache = DependencyManager::get<GeometryCache>();
+    GeometryCache::Shape geometryShape = geometryCache->getShapeForEntityShape(_shape);
+    Transform transform;
+    withReadLock([&] {
+        transform = _renderTransform;
+    });
+
+    bool wireframe = render::ShapeKey(args->_globalShapeKey).isWireframe() || _primitiveMode == PrimitiveMode::LINES;
+
+    transform.setRotation(BillboardModeHelpers::getBillboardRotation(transform.getTranslation(), transform.getRotation(), _billboardMode,
+        args->_renderMode == RenderArgs::RenderMode::SHADOW_RENDER_MODE ? BillboardModeHelpers::getPrimaryViewFrustumPosition() : args->getViewFrustum().getPosition(),
+        _shape < entity::Shape::Cube || _shape > entity::Shape::Icosahedron));
+    batch.setModelTransform(transform);
+
+    Pipeline pipelineType = getPipelineType(materials);
+    if (pipelineType == Pipeline::PROCEDURAL) {
+        auto procedural = std::static_pointer_cast<graphics::ProceduralMaterial>(materials.top().material);
+        outColor = procedural->getColor(outColor);
+        outColor.a *= procedural->isFading() ? Interpolate::calculateFadeRatio(procedural->getFadeStartTime()) : 1.0f;
+        withReadLock([&] {
+            procedural->prepare(batch, transform.getTranslation(), transform.getScale(), transform.getRotation(), _created, ProceduralProgramKey(outColor.a < 1.0f));
+        });
+
+        if (wireframe) {
             geometryCache->renderWireShape(batch, geometryShape, outColor);
         } else {
             geometryCache->renderShape(batch, geometryShape, outColor);
         }
-    } else if (!useMaterialPipeline(materials)) {
+    } else if (pipelineType == Pipeline::SIMPLE) {
         // FIXME, support instanced multi-shape rendering using multidraw indirect
         outColor.a *= _isFading ? Interpolate::calculateFadeRatio(_fadeStartTime) : 1.0f;
-        render::ShapePipelinePointer pipeline;
-        if (renderLayer == RenderLayer::WORLD && args->_renderMethod != Args::RenderMethod::FORWARD) {
-            pipeline = outColor.a < 1.0f ? geometryCache->getTransparentShapePipeline() : geometryCache->getOpaqueShapePipeline();
+        bool forward = _renderLayer != RenderLayer::WORLD || args->_renderMethod == Args::RenderMethod::FORWARD;
+        if (outColor.a >= 1.0f) {
+            render::ShapePipelinePointer pipeline = geometryCache->getShapePipelinePointer(false, wireframe || materials.top().material->isUnlit(),
+                forward, materials.top().material->getCullFaceMode());
+            if (wireframe) {
+                geometryCache->renderWireShapeInstance(args, batch, geometryShape, outColor, pipeline);
+            } else {
+                geometryCache->renderSolidShapeInstance(args, batch, geometryShape, outColor, pipeline);
+            }
         } else {
-            pipeline = outColor.a < 1.0f ? geometryCache->getForwardTransparentShapePipeline() : geometryCache->getForwardOpaqueShapePipeline();
-        }
-        if (render::ShapeKey(args->_globalShapeKey).isWireframe() || primitiveMode == PrimitiveMode::LINES) {
-            geometryCache->renderWireShapeInstance(args, batch, geometryShape, outColor, pipeline);
-        } else {
-            geometryCache->renderSolidShapeInstance(args, batch, geometryShape, outColor, pipeline);
+            if (wireframe) {
+                geometryCache->renderWireShape(batch, geometryShape, outColor);
+            } else {
+                geometryCache->renderShape(batch, geometryShape, outColor);
+            }
         }
     } else {
         if (RenderPipelines::bindMaterials(materials, batch, args->_renderMode, args->_enableTexturing)) {

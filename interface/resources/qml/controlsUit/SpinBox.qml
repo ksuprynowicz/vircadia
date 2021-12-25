@@ -73,9 +73,9 @@ SpinBox {
         }
     }
 
-    stepSize: realStepSize * factor
-    to : realTo*factor
-    from : realFrom*factor
+    stepSize: Math.round(realStepSize * factor)
+    to : Math.round(realTo*factor)
+    from : Math.round(realFrom*factor)
 
     font.family: "Fira Sans SemiBold"
     font.pixelSize: hifi.fontSizes.textFieldInput
@@ -97,11 +97,11 @@ SpinBox {
     }
 
     textFromValue: function(value, locale) {
-        return parseFloat(value / factor).toFixed(decimals);
+        return (value / factor).toFixed(decimals);
     }
 
     valueFromText: function(text, locale) {
-        return Number.fromLocaleString(locale, text) * factor;
+        return Math.round(Number.fromLocaleString(locale, text) * factor);
     }
 
 
@@ -109,7 +109,7 @@ SpinBox {
         id: spinboxText
         z: 2
         color: isLightColorScheme
-               ? (spinBox.activeFocus ? hifi.colors.black : hifi.colors.faintGray)
+               ? (spinBox.activeFocus ? hifi.colors.black : hifi.colors.baseGrayHighlight)
                : (spinBox.activeFocus ? hifi.colors.white : hifi.colors.lightGrayText)
         selectedTextColor: hifi.colors.black
         selectionColor: hifi.colors.primaryHighlight
@@ -130,7 +130,7 @@ SpinBox {
             }
 
             color: isLightColorScheme
-                   ? (spinBox.activeFocus ? hifi.colors.black : hifi.colors.faintGray)
+                   ? (spinBox.activeFocus ? hifi.colors.black : hifi.colors.baseGrayHighlight)
                    : (spinBox.activeFocus ? hifi.colors.white : hifi.colors.lightGrayText)
             text: suffix
             verticalAlignment: Qt.AlignVCenter

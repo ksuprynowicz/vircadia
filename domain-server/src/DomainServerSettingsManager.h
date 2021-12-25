@@ -4,6 +4,7 @@
 //
 //  Created by Stephen Birarda on 2014-06-24.
 //  Copyright 2014 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -16,14 +17,15 @@
 #include <QtCore/QJsonObject>
 #include <QtCore/QJsonDocument>
 #include <QtNetwork/QNetworkReply>
+#include <QtCore/QSharedPointer>
 
 #include <HifiConfigVariantMap.h>
 #include <HTTPManager.h>
-
-#include <ReceivedMessage.h>
-#include "NodePermissions.h"
-
 #include <Node.h>
+#include <ReceivedMessage.h>
+
+#include "DomainGatekeeper.h"
+#include "NodePermissions.h"
 
 const QString SETTINGS_PATHS_KEY = "paths";
 
@@ -35,6 +37,11 @@ const QString MACHINE_FINGERPRINT_PERMISSIONS_KEYPATH = "security.machine_finger
 const QString GROUP_PERMISSIONS_KEYPATH = "security.group_permissions";
 const QString GROUP_FORBIDDENS_KEYPATH = "security.group_forbiddens";
 const QString AUTOMATIC_CONTENT_ARCHIVES_GROUP = "automatic_content_archives";
+const QString CONTENT_SETTINGS_INSTALLED_CONTENT_FILENAME = "installed_content.filename";
+const QString CONTENT_SETTINGS_INSTALLED_CONTENT_NAME = "installed_content.name";
+const QString CONTENT_SETTINGS_INSTALLED_CONTENT_CREATION_TIME = "installed_content.creation_time";
+const QString CONTENT_SETTINGS_INSTALLED_CONTENT_INSTALL_TIME = "installed_content.install_time";
+const QString CONTENT_SETTINGS_INSTALLED_CONTENT_INSTALLED_BY = "installed_content.installed_by";
 
 using GroupByUUIDKey = QPair<QUuid, QUuid>; // groupID, rankID
 
@@ -100,7 +107,10 @@ public:
     QList<QUuid> getGroupIDs();
     QList<QUuid> getBlacklistGroupIDs();
 
-    // these are used to locally cache the result of calling "api/v1/groups/.../is_member/..." on metaverse's api
+    QStringList getDomainServerGroupNames();
+    QStringList getDomainServerBlacklistGroupNames();
+
+    // these are used to locally cache the result of calling "/api/v1/groups/.../is_member/..." on metaverse's api
     void clearGroupMemberships(const QString& name) { _groupMembership[name.toLower()].clear(); }
     void recordGroupMembership(const QString& name, const QUuid groupID, QUuid rankID);
     QUuid isGroupMember(const QString& name, const QUuid& groupID); // returns rank or -1 if not a member
@@ -203,6 +213,8 @@ private:
 
     /// guard read/write access from multiple threads to settings 
     QReadWriteLock _settingsLock { QReadWriteLock::Recursive };
+
+    friend class DomainServer;
 };
 
 #endif // hifi_DomainServerSettingsManager_h

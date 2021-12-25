@@ -24,7 +24,7 @@ class TextureCacheScriptingInterface : public ScriptableResourceCache, public De
 
     // Properties are copied over from ResourceCache (see ResourceCache.h for reason).
 
-    /**jsdoc
+    /*@jsdoc
      * The <code>TextureCache</code> API manages texture cache resources.
      *
      * @namespace TextureCache
@@ -37,6 +37,10 @@ class TextureCacheScriptingInterface : public ScriptableResourceCache, public De
      * @property {number} numCached - Total number of cached resource. <em>Read-only.</em>
      * @property {number} sizeTotal - Size in bytes of all resources. <em>Read-only.</em>
      * @property {number} sizeCached - Size in bytes of all cached resources. <em>Read-only.</em>
+     * @property {number} numGlobalQueriesPending - Total number of global queries pending (across all resource cache managers).
+     *     <em>Read-only.</em>
+     * @property {number} numGlobalQueriesLoading - Total number of global queries loading (across all resource cache managers).
+     *     <em>Read-only.</em>
      *
      * @borrows ResourceCache.getResourceList as getResourceList
      * @borrows ResourceCache.updateTotalSize as updateTotalSize
@@ -47,7 +51,7 @@ class TextureCacheScriptingInterface : public ScriptableResourceCache, public De
 public:
     TextureCacheScriptingInterface();
 
-    /**jsdoc
+    /*@jsdoc
      * Prefetches a texture resource of specific type.
      * @function TextureCache.prefetch
      * @variation 0
@@ -60,7 +64,7 @@ public:
     Q_INVOKABLE ScriptableResource* prefetch(const QUrl& url, int type, int maxNumPixels = ABSOLUTE_MAX_TEXTURE_NUM_PIXELS);
 
 signals:
-    /**jsdoc
+    /*@jsdoc
      * @function TextureCache.spectatorCameraFramebufferReset
      * @returns {Signal}
      * @deprecated This signal is deprecated and will be removed.

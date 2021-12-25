@@ -67,13 +67,13 @@ void AnimStats::updateStats(bool force) {
 
     // print if we are recentering or not.
     _recenterText = "Recenter: ";
-    if (myAvatar->isFollowActive(MyAvatar::FollowHelper::Rotation)) {
+    if (myAvatar->isFollowActive(CharacterController::FollowType::Rotation)) {
         _recenterText += "Rotation ";
     }
-    if (myAvatar->isFollowActive(MyAvatar::FollowHelper::Horizontal)) {
+    if (myAvatar->isFollowActive(CharacterController::FollowType::Horizontal)) {
         _recenterText += "Horizontal ";
     }
-    if (myAvatar->isFollowActive(MyAvatar::FollowHelper::Vertical)) {
+    if (myAvatar->isFollowActive(CharacterController::FollowType::Vertical)) {
         _recenterText += "Vertical ";
     }
     emit recenterTextChanged();
@@ -118,7 +118,7 @@ void AnimStats::updateStats(bool force) {
 
         auto prevIter = _prevDebugAlphaMap.find(key);
         if (prevIter != _prevDebugAlphaMap.end()) {
-            float prevAlpha = std::get<0>(iter.second);
+            float prevAlpha = std::get<0>(prevIter->second);
             if (prevAlpha != alpha) {
                 // change detected: reset timer
                 _animAlphaValueChangedTimers[key] = now;
@@ -132,7 +132,7 @@ void AnimStats::updateStats(bool force) {
         if (type == AnimNodeType::Clip) {
 
             // figure out the grayScale color of this line.
-            const float LIT_TIME = 2.0f;
+            const float LIT_TIME = 20.0f;
             const float FADE_OUT_TIME = 1.0f;
             float grayScale = 0.0f;
             float secondsElapsed = (float)(now - _animAlphaValueChangedTimers[key]) / (float)USECS_PER_SECOND;
@@ -176,7 +176,7 @@ void AnimStats::updateStats(bool force) {
         }
 
         // figure out the grayScale color of this line.
-        const float LIT_TIME = 2.0f;
+        const float LIT_TIME = 20.0f;
         const float FADE_OUT_TIME = 0.5f;
         float grayScale = 0.0f;
         float secondsElapsed = (float)(now - _animVarChangedTimers[key]) / (float)USECS_PER_SECOND;

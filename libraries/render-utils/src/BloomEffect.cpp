@@ -15,7 +15,6 @@
 #include <shaders/Shaders.h>
 
 #include <render/BlurTask.h>
-#include <render/ResampleTask.h>
 #include "render-utils/ShaderConstants.h"
 
 #define BLOOM_BLUR_LEVEL_COUNT  3
@@ -36,12 +35,13 @@ void BloomThreshold::run(const render::RenderContextPointer& renderContext, cons
     const auto frameTransform = inputs.get0();
     const auto inputFrameBuffer = inputs.get1();
     const auto bloomFrame = inputs.get2();
+    const auto lightingModel = inputs.get3();
     const auto& bloomStage = renderContext->_scene->getStage<BloomStage>();
     graphics::BloomPointer bloom;
     if (bloomStage && bloomFrame->_blooms.size()) {
         bloom = bloomStage->getBloom(bloomFrame->_blooms.front());
     }
-    if (!bloom) {
+    if (!bloom || (lightingModel && !lightingModel->isBloomEnabled())) {
         renderContext->taskFlow.abortTask();
         return;
     }
@@ -68,7 +68,7 @@ void BloomThreshold::run(const render::RenderContextPointer& renderContext, cons
 
     if (!_pipeline) {
         gpu::ShaderPointer program = gpu::Shader::createProgram(shader::render_utils::program::bloomThreshold);
-        gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer state = std::make_shared<gpu::State>();
         _pipeline = gpu::Pipeline::create(program, state);
     }
 
@@ -113,7 +113,7 @@ void BloomApply::run(const render::RenderContextPointer& renderContext, const In
 
     if (!_pipeline) {
         gpu::ShaderPointer program = gpu::Shader::createProgram(shader::render_utils::program::bloomApply);
-        gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer state = std::make_shared<gpu::State>();
         state->setDepthTest(gpu::State::DepthTest(false, false));
         _pipeline = gpu::Pipeline::create(program, state);
     }
@@ -164,7 +164,7 @@ void BloomDraw::run(const render::RenderContextPointer& renderContext, const Inp
 
         if (!_pipeline) {
             gpu::ShaderPointer program = gpu::Shader::createProgram(shader::gpu::program::drawTransformUnitQuadTextureOpaque);
-            gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+            gpu::StatePointer state = std::make_shared<gpu::State>();
             state->setDepthTest(gpu::State::DepthTest(false, false));
             state->setBlendFunction(true, gpu::State::ONE, gpu::State::BLEND_OP_ADD, gpu::State::ONE,
                                     gpu::State::ZERO, gpu::State::BLEND_OP_ADD, gpu::State::ONE);
@@ -188,12 +188,17 @@ void BloomDraw::run(const render::RenderContextPointer& renderContext, const Inp
     }
 }
 
+void DebugBloomConfig::setMode(int mode) {
+    _mode = std::min((int)DebugBloomConfig::MODE_COUNT, std::max(0, mode));
+    emit dirty();
+}
+
 DebugBloom::DebugBloom() {
     _params = std::make_shared<gpu::Buffer>(gpu::Buffer::UniformBuffer, sizeof(glm::vec4), nullptr);
 }
 
 void DebugBloom::configure(const Config& config) {
-    _mode = static_cast<DebugBloomConfig::Mode>(config.mode);
+    _mode = (DebugBloomConfig::Mode) config.getMode();
     assert(_mode < DebugBloomConfig::MODE_COUNT);
 }
 
@@ -201,6 +206,10 @@ void DebugBloom::run(const render::RenderContextPointer& renderContext, const In
     assert(renderContext->args);
     assert(renderContext->args->hasViewFrustum());
     RenderArgs* args = renderContext->args;
+
+    if (_mode == DebugBloomConfig::OFF) {
+        return;
+    }
 
     const auto frameBuffer = inputs.get0();
     const auto combinedBlurBuffer = inputs.get4();
@@ -216,7 +225,7 @@ void DebugBloom::run(const render::RenderContextPointer& renderContext, const In
 
     if (!_pipeline) {
         gpu::ShaderPointer program = gpu::Shader::createProgram(shader::gpu::program::drawTextureOpaqueTexcoordRect);
-        gpu::StatePointer state = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer state = std::make_shared<gpu::State>();
         state->setDepthTest(gpu::State::DepthTest(false));
         _pipeline = gpu::Pipeline::create(program, state);
     }

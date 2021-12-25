@@ -157,11 +157,6 @@ qint64 AvatarMixerSlave::addChangedTraitsToBulkPacket(AvatarMixerClientData* lis
             ++simpleReceivedIt;
         }
 
-        if (bytesWritten > 0 && sendingAvatar->isCertifyFailed()) {
-            // Resend identity packet if certification failed:
-            sendingAvatar->setNeedsIdentityUpdate();
-        }
-
         // enumerate the received instanced trait versions
         auto instancedReceivedIt = lastReceivedVersions.instancedCBegin();
         while (instancedReceivedIt != lastReceivedVersions.instancedCEnd()) {
@@ -270,7 +265,7 @@ static const int AVATAR_MIXER_BROADCAST_FRAMES_PER_SECOND = 45;
 void AvatarMixerSlave::broadcastAvatarData(const SharedNodePointer& node) {
     quint64 start = usecTimestampNow();
 
-    if (node->getType() == NodeType::Agent && node->getLinkedData() && node->getActiveSocket() && !node->isUpstream()) {
+    if ((node->getType() == NodeType::Agent || node->getType() == NodeType::EntityScriptServer) && node->getLinkedData() && node->getActiveSocket() && !node->isUpstream()) {
         broadcastAvatarDataToAgent(node);
     } else if (node->getType() == NodeType::DownstreamAvatarMixer) {
         broadcastAvatarDataToDownstreamMixer(node);
@@ -434,6 +429,17 @@ void AvatarMixerSlave::broadcastAvatarDataToAgent(const SharedNodePointer& node)
             // Not close enough to ignore
             if (sendAvatar) {
                 destinationNodeData->removeFromRadiusIgnoringSet(sourceAvatarNode->getUUID());
+            }
+        }
+
+        // The source avatar should be removing its avatar entities. However, provide a back-up.
+        if (sendAvatar) {
+            if (!sourceAvatarNode->getCanRezAvatarEntities()) {
+                auto sourceAvatarNodeData = reinterpret_cast<AvatarMixerClientData*>(sourceAvatarNode->getLinkedData());
+                auto avatarEntityIDs = sourceAvatarNodeData->getAvatar().getAvatarEntityIDs();
+                if (avatarEntityIDs.count() > 0) {
+                    sourceAvatarNodeData->emulateDeleteEntitiesTraitsMessage(avatarEntityIDs);
+                }
             }
         }
 

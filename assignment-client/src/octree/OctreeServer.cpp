@@ -34,6 +34,7 @@
 #include <QtCore/QDir>
 
 #include <OctreeDataUtils.h>
+#include <ThreadHelpers.h>
 
 Q_LOGGING_CATEGORY(octree_server, "hifi.octree-server")
 
@@ -89,6 +90,7 @@ int OctreeServer::_shortProcessWait = 0;
 int OctreeServer::_noProcessWait = 0;
 
 static const QString PERSIST_FILE_DOWNLOAD_PATH = "/models.json.gz";
+static const double NANOSECONDS_PER_SECOND = 1000000.0;;
 
 
 void OctreeServer::resetSendingStats() {
@@ -1121,8 +1123,10 @@ void OctreeServer::run() {
 
 void OctreeServer::domainSettingsRequestComplete() {
     auto& packetReceiver = DependencyManager::get<NodeList>()->getPacketReceiver();
-    packetReceiver.registerListener(PacketType::OctreeDataNack, this, "handleOctreeDataNackPacket");
-    packetReceiver.registerListener(getMyQueryMessageType(), this, "handleOctreeQueryPacket");
+    packetReceiver.registerListener(PacketType::OctreeDataNack,
+        PacketReceiver::makeSourcedListenerReference<OctreeServer>(this, &OctreeServer::handleOctreeDataNackPacket));
+    packetReceiver.registerListener(getMyQueryMessageType(),
+        PacketReceiver::makeSourcedListenerReference<OctreeServer>(this, &OctreeServer::handleOctreeQueryPacket));
 
     qDebug(octree_server) << "Received domain settings";
 
@@ -1189,7 +1193,10 @@ void OctreeServer::domainSettingsRequestComplete() {
                                                  _persistAsFileType);
         _persistManager->moveToThread(&_persistThread);
         connect(&_persistThread, &QThread::finished, _persistManager, &QObject::deleteLater);
-        connect(&_persistThread, &QThread::started, _persistManager, &OctreePersistThread::start);
+        connect(&_persistThread, &QThread::started, _persistManager, [this] {
+            setThreadName("OctreePersistThread");
+            _persistManager->start();
+        });
         connect(_persistManager, &OctreePersistThread::loadCompleted, this, [this]() {
             beginRunning();
         });
@@ -1197,7 +1204,7 @@ void OctreeServer::domainSettingsRequestComplete() {
     } else {
         beginRunning();
     }
-} 
+}
 
 void OctreeServer::beginRunning() {
     auto nodeList = DependencyManager::get<NodeList>();
@@ -1292,6 +1299,7 @@ void OctreeServer::aboutToFinish() {
     for (auto& it : _sendThreads) {
         auto& sendThread = *it.second;
         sendThread.setIsShuttingDown();
+        sendThread.terminate();
     }
 
     // Clear will destruct all the unique_ptr to OctreeSendThreads which will call the GenericThread's dtor
@@ -1343,6 +1351,10 @@ QString OctreeServer::getUptime() {
     return formattedUptime;
 }
 
+double OctreeServer::getUptimeSeconds() {
+    return (usecTimestampNow() - _startedUSecs) / NANOSECONDS_PER_SECOND;
+}
+
 QString OctreeServer::getFileLoadTime() {
     QString result;
     if (isInitialLoadComplete()) {
@@ -1385,6 +1397,10 @@ QString OctreeServer::getFileLoadTime() {
     return result;
 }
 
+double OctreeServer::getFileLoadTimeSeconds() {
+    return getLoadElapsedTime() / NANOSECONDS_PER_SECOND;
+}
+
 QString OctreeServer::getConfiguration() {
     QString result;
     for (int i = 1; i < _argc; i++) {
@@ -1420,6 +1436,8 @@ void OctreeServer::sendStatsPacket() {
     statsArray1["4. persistFileLoadTime"] = getFileLoadTime();
     statsArray1["5. clients"] = getCurrentClientCount();
     statsArray1["6. threads"] = threadsStats;
+    statsArray1["uptime_seconds"] = getUptimeSeconds();
+    statsArray1["persistFileLoadTime_seconds"] = getFileLoadTimeSeconds();
 
     // Octree Stats
     QJsonObject octreeStats;

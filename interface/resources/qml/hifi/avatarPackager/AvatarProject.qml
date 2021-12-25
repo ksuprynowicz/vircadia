@@ -44,7 +44,11 @@ Item {
             HifiControls.Button {
                 id: uploadButton
 
+                // FIXME: Re-enable if ability to upload to hosted location is added.
+                /*
                 visible: AvatarPackagerCore.currentAvatarProject && !AvatarPackagerCore.currentAvatarProject.fst.hasMarketplaceID && !root.hasSuccessfullyUploaded
+                */
+                visible: false
                 enabled: Account.loggedIn
 
                 anchors.verticalCenter: parent.verticalCenter
@@ -62,7 +66,11 @@ Item {
             HifiControls.Button {
                 id: updateButton
 
+                // FIXME: Re-enable if ability to upload to hosted location is added.
+                /*
                 visible: AvatarPackagerCore.currentAvatarProject && AvatarPackagerCore.currentAvatarProject.fst.hasMarketplaceID && !root.hasSuccessfullyUploaded
+                */
+                visible: false
                 enabled: Account.loggedIn
 
                 anchors.verticalCenter: parent.verticalCenter
@@ -79,7 +87,12 @@ Item {
             }
             Item {
                 anchors.fill: parent
+
+                // FIXME: Re-enable if ability to upload to hosted location is added.
+                /*
                 visible: root.hasSuccessfullyUploaded
+                */
+                visible: false;
 
                 HifiControls.Button {
                     enabled: Account.loggedIn
@@ -115,13 +128,29 @@ Item {
                     onClicked: AvatarPackagerCore.currentAvatarProject.openInInventory()
                 }
             }
+            // FIXME: Remove if "Upload" button is reinstated.
+            HifiControls.Button {
+                id: openDirectoryButton
+                visible: AvatarPackagerCore.currentAvatarProject
+                enabled: true
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                text: qsTr("Open Project Folder")
+                color: hifi.buttons.blue
+                colorScheme: root.colorScheme
+                width: 200
+                height: 40
+                onClicked: {
+                    fileDialogHelper.openDirectory(fileDialogHelper.pathToUrl(AvatarPackagerCore.currentAvatarProject.projectFolderPath));
+                }
+            }
         }
 
         Rectangle {
             id: uploadingItemFooter
 
             anchors.fill: parent
-            anchors.topMargin: 1 
+            anchors.topMargin: 1
             visible: !!root.uploader && !root.finished && root.uploader.state === 4
 
             color: "#00B4EF"
@@ -176,7 +205,7 @@ Item {
 
     function showConfirmUploadPopup() {
         popup.titleText = 'Overwrite Avatar';
-        popup.bodyText = 'You have previously uploaded the avatar file from this project.' + 
+        popup.bodyText = 'You have previously uploaded the avatar file from this project.' +
                          ' This will overwrite that avatar and you won’t be able to access the older version.';
 
         popup.button1text = 'CREATE NEW';
@@ -263,11 +292,56 @@ Item {
         color: 'white'
         size: 20
 
-        anchors.left: parent.left
-        anchors.right: parent.right
+        anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: errorsGlyph.bottom
 
         wrapMode: Text.Wrap
+    }
+
+    RalewayRegular {
+        id: notForSaleMessage
+
+        visible: root.hasSuccessfullyUploaded
+
+        color: 'white'
+        linkColor: '#00B4EF'
+        size: 20
+
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: doctorStatusMessage.bottom
+        anchors.topMargin: 10
+
+        anchors.bottomMargin: 24
+
+        wrapMode: Text.Wrap
+        text: "This item is not for sale yet, <a href='#'>learn more</a>."
+
+        onLinkActivated: {
+            Qt.openUrlExternally("https://docs.vircadia.com/sell/add-item/upload-avatar.html");
+        }
+    }
+
+    RalewayRegular {
+        id: showErrorsLink
+
+        color: 'white'
+        linkColor: '#00B4EF'
+
+        visible: AvatarPackagerCore.currentAvatarProject && AvatarPackagerCore.currentAvatarProject.hasErrors
+
+        anchors {
+            top: notForSaleMessage.bottom
+            horizontalCenter: parent.horizontalCenter
+        }
+
+        size: 28
+
+        text: "<a href='toggle'>View all errors</a>"
+
+        onLinkActivated: {
+            avatarPackager.state = AvatarPackagerState.avatarDoctorErrorReport;
+        }
     }
 
     RalewayRegular {
@@ -297,60 +371,14 @@ Item {
 
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: doctorStatusMessage.bottom
-
+        anchors.bottom: showFilesText.top
         anchors.bottomMargin: 24
 
         wrapMode: Text.Wrap
 
-        text: "You can upload your files to our servers to always access them, and to make your avatar visible to other users."
-    }
-
-    RalewayRegular {
-        id: notForSaleMessage
-
-        visible: root.hasSuccessfullyUploaded
-
-        color: 'white'
-        linkColor: '#00B4EF'
-        size: 20
-
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: infoMessage.bottom
-        anchors.topMargin: 10
-
-        anchors.bottomMargin: 24
-
-        wrapMode: Text.Wrap
-        text: "This item is not for sale yet, <a href='#'>learn more</a>."
-
-        onLinkActivated: {
-            Qt.openUrlExternally("https://docs.highfidelity.com/sell/add-item/upload-avatar.html");
-        }
-    }
-
-    RalewayRegular {
-        id: showErrorsLink
-
-        color: 'white'
-        linkColor: '#00B4EF'
-
-        visible: AvatarPackagerCore.currentAvatarProject && AvatarPackagerCore.currentAvatarProject.hasErrors
-
-        anchors {
-            top: notForSaleMessage.visible ? notForSaleMessage.bottom : infoMessage .bottom
-            bottom: showFilesText.top
-            horizontalCenter: parent.horizontalCenter
-        }
-
-        size: 28
-
-        text: "<a href='toggle'>View all errors</a>"
-
-        onLinkActivated: {
-            avatarPackager.state = AvatarPackagerState.avatarDoctorErrorReport;
-        }
+        // FIXME: Restore original text if ability to upload to hosted location is added.
+        //text: "You can upload your files to our servers to always access them, and to make your avatar visible to other users."
+        text: "Your files are ready to be uploaded to a server to make your avatar visible to other users."
     }
 
     HifiControls.Button {
@@ -389,8 +417,13 @@ Item {
     Rectangle {
         id: loginRequiredMessage
 
+        // FIXME: Re-enable if ability to upload to hosted location is added.
+        /*
         visible: !Account.loggedIn
         height: !Account.loggedIn ? loginRequiredTextRow.height + 20 : 0
+        */
+        visible: false
+        height: 0
 
         anchors {
             bottom: parent.bottom

@@ -14,7 +14,7 @@
 #include "QJsonArray"
 
 EntityItemPointer MaterialEntityItem::factory(const EntityItemID& entityID, const EntityItemProperties& properties) {
-    Pointer entity(new MaterialEntityItem(entityID), [](EntityItem* ptr) { ptr->deleteLater(); });
+    Pointer entity(new MaterialEntityItem(entityID), [](MaterialEntityItem* ptr) { ptr->deleteLater(); });
     entity->setProperties(properties);
     return entity;
 }
@@ -38,8 +38,8 @@ EntityItemProperties MaterialEntityItem::getProperties(const EntityPropertyFlags
     return properties;
 }
 
-bool MaterialEntityItem::setProperties(const EntityItemProperties& properties) {
-    bool somethingChanged = EntityItem::setProperties(properties); // set the properties in our base class
+bool MaterialEntityItem::setSubClassProperties(const EntityItemProperties& properties) {
+    bool somethingChanged = false;
 
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(materialURL, setMaterialURL);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(materialMappingMode, setMaterialMappingMode);
@@ -51,16 +51,6 @@ bool MaterialEntityItem::setProperties(const EntityItemProperties& properties) {
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(materialData, setMaterialData);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(materialRepeat, setMaterialRepeat);
 
-    if (somethingChanged) {
-        bool wantDebug = false;
-        if (wantDebug) {
-            uint64_t now = usecTimestampNow();
-            int elapsed = now - getLastEdited();
-            qCDebug(entities) << "MaterialEntityItem::setProperties() AFTER update... edited AGO=" << elapsed <<
-                    "now=" << now << " getLastEdited()=" << getLastEdited();
-        }
-        setLastEdited(properties.getLastEdited());
-    }
     return somethingChanged;
 }
 
@@ -139,10 +129,10 @@ void MaterialEntityItem::debugDump() const {
 
 void MaterialEntityItem::setUnscaledDimensions(const glm::vec3& value) {
     _desiredDimensions = value;
-    if (_materialMappingMode == MaterialMappingMode::UV) {
-        EntityItem::setUnscaledDimensions(ENTITY_ITEM_DEFAULT_DIMENSIONS);
-    } else if (_materialMappingMode == MaterialMappingMode::PROJECTED) {
+    if (_hasVertexShader || _materialMappingMode == MaterialMappingMode::PROJECTED) {
         EntityItem::setUnscaledDimensions(value);
+    } else if (_materialMappingMode == MaterialMappingMode::UV) {
+        EntityItem::setUnscaledDimensions(ENTITY_ITEM_DEFAULT_DIMENSIONS);
     }
 }
 
@@ -154,6 +144,7 @@ QString MaterialEntityItem::getMaterialURL() const {
 
 void MaterialEntityItem::setMaterialURL(const QString& materialURL) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _materialURL != materialURL;
         _materialURL = materialURL;
     });
 }
@@ -166,6 +157,7 @@ QString MaterialEntityItem::getMaterialData() const {
 
 void MaterialEntityItem::setMaterialData(const QString& materialData) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _materialData != materialData;
         _materialData = materialData;
     });
 }
@@ -178,6 +170,7 @@ MaterialMappingMode MaterialEntityItem::getMaterialMappingMode() const {
 
 void MaterialEntityItem::setMaterialMappingMode(MaterialMappingMode mode) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _materialMappingMode != mode;
         _materialMappingMode = mode;
     });
     setUnscaledDimensions(_desiredDimensions);
@@ -191,6 +184,7 @@ quint16 MaterialEntityItem::getPriority() const {
 
 void MaterialEntityItem::setPriority(quint16 priority) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _priority != priority;
         _priority = priority;
     });
 }
@@ -203,6 +197,7 @@ QString MaterialEntityItem::getParentMaterialName() const {
 
 void MaterialEntityItem::setParentMaterialName(const QString& parentMaterialName) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _parentMaterialName != parentMaterialName;
         _parentMaterialName = parentMaterialName;
     });
 }
@@ -215,6 +210,7 @@ glm::vec2 MaterialEntityItem::getMaterialMappingPos() const {
 
 void MaterialEntityItem::setMaterialMappingPos(const glm::vec2& materialMappingPos) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _materialMappingPos != materialMappingPos;
         _materialMappingPos = materialMappingPos;
     });
 }
@@ -227,6 +223,7 @@ glm::vec2 MaterialEntityItem::getMaterialMappingScale() const {
 
 void MaterialEntityItem::setMaterialMappingScale(const glm::vec2& materialMappingScale) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _materialMappingScale != materialMappingScale;
         _materialMappingScale = materialMappingScale;
     });
 }
@@ -239,8 +236,29 @@ float MaterialEntityItem::getMaterialMappingRot() const {
 
 void MaterialEntityItem::setMaterialMappingRot(float materialMappingRot) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _materialMappingRot != materialMappingRot;
         _materialMappingRot = materialMappingRot;
     });
+}
+
+bool MaterialEntityItem::getMaterialRepeat() const {
+    return resultWithReadLock<bool>([&] {
+        return _materialRepeat;
+    });
+}
+
+void MaterialEntityItem::setMaterialRepeat(bool value) {
+    withWriteLock([&] {
+        _needsRenderUpdate |= _materialRepeat != value;
+        _materialRepeat = value;
+    });
+}
+
+void MaterialEntityItem::setParentID(const QUuid& parentID) {
+    if (parentID != getParentID()) {
+        EntityItem::setParentID(parentID);
+        _hasVertexShader = false;
+    }
 }
 
 AACube MaterialEntityItem::calculateInitialQueryAACube(bool& success) {
@@ -256,4 +274,17 @@ AACube MaterialEntityItem::calculateInitialQueryAACube(bool& success) {
         }
     }
     return aaCube;
+}
+
+void MaterialEntityItem::setHasVertexShader(bool hasVertexShader) {
+    bool prevHasVertexShader = _hasVertexShader;
+    _hasVertexShader = hasVertexShader;
+
+    if (hasVertexShader && !prevHasVertexShader) {
+        setLocalPosition(glm::vec3(0.0f));
+        setLocalOrientation(glm::quat());
+        setUnscaledDimensions(EntityTree::getUnscaledDimensionsForID(getParentID()));
+    } else if (!hasVertexShader && prevHasVertexShader) {
+        setUnscaledDimensions(_desiredDimensions);
+    }
 }

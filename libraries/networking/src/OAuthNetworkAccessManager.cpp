@@ -18,6 +18,7 @@
 #include "AccountManager.h"
 #include "LimitedNodeList.h"
 #include "NetworkingConstants.h"
+#include "MetaverseAPI.h"
 #include "SharedUtil.h"
 
 QThreadStorage<OAuthNetworkAccessManager*> oauthNetworkAccessManagers;
@@ -35,10 +36,10 @@ QNetworkReply* OAuthNetworkAccessManager::createRequest(QNetworkAccessManager::O
     auto accountManager = DependencyManager::get<AccountManager>();
     
     if (accountManager->hasValidAccessToken()
-        && req.url().host() == NetworkingConstants::METAVERSE_SERVER_URL().host()) {
+        && req.url().host() == MetaverseAPI::getCurrentMetaverseServerURL().host()) {
         QNetworkRequest authenticatedRequest(req);
         authenticatedRequest.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
-        authenticatedRequest.setHeader(QNetworkRequest::UserAgentHeader, HIGH_FIDELITY_USER_AGENT);
+        authenticatedRequest.setHeader(QNetworkRequest::UserAgentHeader, NetworkingConstants::VIRCADIA_USER_AGENT);
         authenticatedRequest.setRawHeader(ACCESS_TOKEN_AUTHORIZATION_HEADER,
                                           accountManager->getAccountInfo().getAccessToken().authorizationHeaderValue());
         

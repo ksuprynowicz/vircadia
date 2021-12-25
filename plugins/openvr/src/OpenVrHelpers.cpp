@@ -1,6 +1,7 @@
 //
 //  Created by Bradley Austin Davis on 2015/11/01
 //  Copyright 2015 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -18,8 +19,6 @@
 #include <QtGui/QInputMethodEvent>
 #include <QtQuick/QQuickWindow>
 
-#include <PathUtils.h>
-#include <Windows.h>
 #include <OffscreenUi.h>
 #include <controllers/Pose.h>
 #include <NumericalConstants.h>
@@ -51,7 +50,7 @@ static const uint32_t RELEASE_OPENVR_HMD_DELAY_MS = 5000;
 
 bool isOculusPresent() {
     bool result = false;
-#if defined(Q_OS_WIN32)
+#ifdef Q_OS_WIN 
     HANDLE oculusServiceEvent = ::OpenEventW(SYNCHRONIZE, FALSE, L"OculusHMDConnected");
     // The existence of the service indicates a running Oculus runtime
     if (oculusServiceEvent) {
@@ -100,7 +99,7 @@ QString getVrSettingString(const char* section, const char* setting) {
     vr::IVRSettings * vrSettings = vr::VRSettings();
     if (vrSettings) {
         vr::EVRSettingsError error = vr::VRSettingsError_None;
-        vrSettings->GetString(vr::k_pch_audio_Section, vr::k_pch_audio_OnPlaybackDevice_String, BUFFER, BUFFER_SIZE, &error);
+        vrSettings->GetString(vr::k_pch_audio_Section, setting, BUFFER, BUFFER_SIZE, &error);
         if (error == vr::VRSettingsError_None) {
             result = BUFFER;
         }
@@ -108,9 +107,11 @@ QString getVrSettingString(const char* section, const char* setting) {
     return result;
 }
 
+bool isHMDInErrorState = false;
+
 vr::IVRSystem* acquireOpenVrSystem() {
     bool hmdPresent = vr::VR_IsHmdPresent();
-    if (hmdPresent) {
+    if (hmdPresent && !isHMDInErrorState) {
         Lock lock(mutex);
         if (!activeHmd) {
             #if DEV_BUILD
@@ -122,6 +123,14 @@ vr::IVRSystem* acquireOpenVrSystem() {
             #if DEV_BUILD
                 qCDebug(displayplugins) << "OpenVR display: HMD is " << activeHmd << " error is " << eError;
             #endif
+
+            if (eError == vr::VRInitError_Init_HmdNotFound) {
+                isHMDInErrorState = true;
+                activeHmd = nullptr;
+                #if DEV_BUILD
+                    qCDebug(displayplugins) << "OpenVR: No HMD connected, setting nullptr!";
+                #endif
+            }
         }
         if (activeHmd) {
             #if DEV_BUILD
@@ -194,12 +203,14 @@ void updateFromOpenVrKeyboardInput() {
 }
 
 void finishOpenVrKeyboardInput() {
-    auto offscreenUi = DependencyManager::get<OffscreenUi>();
+    auto offscreenUI = DependencyManager::get<OffscreenUi>();
     updateFromOpenVrKeyboardInput();
     // Simulate an enter press on the top level window to trigger the action
-    if (0 == (_currentHints & Qt::ImhMultiLine)) {
-        qApp->sendEvent(offscreenUi->getWindow(), &QKeyEvent(QEvent::KeyPress, Qt::Key_Return, Qt::KeyboardModifiers(), QString("\n")));
-        qApp->sendEvent(offscreenUi->getWindow(), &QKeyEvent(QEvent::KeyRelease, Qt::Key_Return, Qt::KeyboardModifiers()));
+    if (0 == (_currentHints & Qt::ImhMultiLine) && offscreenUI) {
+        auto keyPress = QKeyEvent(QEvent::KeyPress, Qt::Key_Return, Qt::KeyboardModifiers(), QString("\n"));
+        auto keyRelease = QKeyEvent(QEvent::KeyRelease, Qt::Key_Return, Qt::KeyboardModifiers());
+        qApp->sendEvent(offscreenUI->getWindow(), &keyPress);
+        qApp->sendEvent(offscreenUI->getWindow(), &keyRelease);
     }
 }
 
@@ -210,9 +221,7 @@ void enableOpenVrKeyboard(PluginContainer* container) {
     if (disableSteamVrKeyboard) {
         return;
     }
-    auto offscreenUi = DependencyManager::get<OffscreenUi>();
     _overlay = vr::VROverlay();
-
 
     auto menu = container->getPrimaryMenu();
     auto action = menu->getActionForOption(MenuOption::Overlays);
@@ -271,7 +280,9 @@ void handleOpenVrEvents() {
             case vr::VREvent_KeyboardClosed:
                 _keyboardFocusObject = nullptr;
                 _keyboardShown = false;
-                DependencyManager::get<OffscreenUi>()->unfocusWindows();
+                if (auto offscreenUI = DependencyManager::get<OffscreenUi>()) {
+                    offscreenUI->unfocusWindows();
+                }
                 break;
 
             default:
@@ -283,11 +294,20 @@ void handleOpenVrEvents() {
                 ulong promitySensorFlag = (1UL << ((int)vr::k_EButton_ProximitySensor));
                 _headInHeadset = (controllerState.ulButtonPressed & promitySensorFlag) == promitySensorFlag;
             }
-
         }
 
         #if DEV_BUILD
-            qDebug() << "OpenVR: Event " << activeHmd->GetEventTypeNameFromEnum((vr::EVREventType)event.eventType) << "(" << event.eventType << ")";
+            //qDebug() << "OpenVR: Event " << activeHmd->GetEventTypeNameFromEnum((vr::EVREventType)event.eventType) << "(" << event.eventType << ")";
+            // FIXME: Reinstate the line above and remove the following lines once the problem with excessive occurrences of 
+            // VREvent_ActionBindingReloaded events is fixed in SteamVR for Linux. 
+            // https://github.com/ValveSoftware/SteamVR-for-Linux/issues/307
+            #ifdef Q_OS_LINUX
+                if (event.eventType != vr::VREvent_ActionBindingReloaded) {
+                    qDebug() << "OpenVR: Event " << activeHmd->GetEventTypeNameFromEnum((vr::EVREventType)event.eventType) << "(" << event.eventType << ")";
+                };
+            #else
+                qDebug() << "OpenVR: Event " << activeHmd->GetEventTypeNameFromEnum((vr::EVREventType)event.eventType) << "(" << event.eventType << ")";
+            #endif
         #endif
     }
 
@@ -391,19 +411,49 @@ void showMinSpecWarning() {
     if (!vrOverlay) {
         qFatal("Unable to initialize SteamVR overlay manager");
     }
+    auto vrChaperone = vr::VRChaperone();
+    if (!vrChaperone) {
+        qFatal("Unable to initialize SteamVR chaperone");
+    }
+    auto vrCompositor = vr::VRCompositor();
+    if (!vrCompositor) {
+        qFatal("Unable to initialize SteamVR compositor");
+    }
 
     vr::VROverlayHandle_t minSpecFailedOverlay = 0;
     if (vr::VROverlayError_None != vrOverlay->CreateOverlay(FAILED_MIN_SPEC_OVERLAY_NAME, FAILED_MIN_SPEC_OVERLAY_FRIENDLY_NAME, &minSpecFailedOverlay)) {
         qFatal("Unable to create overlay");
     }
 
-    // Needed here for PathUtils
+#ifdef Q_OS_LINUX
+    QFile cmdlineFile("/proc/self/cmdline");
+    if (!cmdlineFile.open(QIODevice::ReadOnly)) {
+        qFatal("Unable to open /proc/self/cmdline");
+    }
+
+    auto contents = cmdlineFile.readAll();
+    auto arguments = contents.split('\0');
+    arguments.pop_back();  // Last element is empty.
+    cmdlineFile.close();
+
+    int __argc = arguments.count();
+    char** __argv = new char* [__argc];
+    for (int i = 0; i < __argc; i++) {
+        __argv[i] = arguments[i].data();
+    }
+#endif
+
     QCoreApplication miniApp(__argc, __argv);
 
-    vrSystem->ResetSeatedZeroPose();
+#ifdef Q_OS_LINUX
+    QObject::connect(&miniApp, &QCoreApplication::destroyed, [=] {
+        delete[] __argv;
+    });
+#endif
+
+    vrChaperone->ResetZeroPose(vrCompositor->GetTrackingSpace());
     QString imagePath = PathUtils::resourcesPath() + "/images/steam-min-spec-failed.png";
     vrOverlay->SetOverlayFromFile(minSpecFailedOverlay, imagePath.toLocal8Bit().toStdString().c_str());
-    vrOverlay->SetHighQualityOverlay(minSpecFailedOverlay);
     vrOverlay->SetOverlayWidthInMeters(minSpecFailedOverlay, 1.4f);
     vrOverlay->SetOverlayInputMethod(minSpecFailedOverlay, vr::VROverlayInputMethod_Mouse);
     vrOverlay->ShowOverlay(minSpecFailedOverlay);
@@ -478,7 +528,12 @@ bool checkMinSpecImpl() {
 }
 
 extern "C" {
+#if defined(Q_OS_WIN32)
     __declspec(dllexport) int __stdcall CheckMinSpec() {
+#else
+    __attribute__((visibility("default"))) int CheckMinSpec() {
+#endif
         return checkMinSpecImpl() ? 1 : 0;
     }
+
 }

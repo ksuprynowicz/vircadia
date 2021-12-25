@@ -13,6 +13,8 @@
 #include <gl/Config.h>
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QBuffer>
+#include <QtCore/QSharedPointer>
 #include <QtCore/QThread>
 #include <QtCore/QTimer>
 #include <QtCore/QFileInfo>
@@ -36,6 +38,7 @@
 #include <shaders/Shaders.h>
 #include <gpu/gl/GLShared.h>
 #include <gpu/gl/GLBackend.h>
+#include <gpu/gl/GLTexelFormat.h>
 #include <GeometryCache.h>
 
 #include <CursorManager.h>
@@ -48,6 +51,7 @@
 #include "CompositorHelper.h"
 #include "Logging.h"
 #include "RefreshRateController.h"
+#include <ThreadHelpers.h>
 
 using namespace shader::gpu::program;
 
@@ -283,6 +287,7 @@ bool OpenGLDisplayPlugin::activate() {
         widget->context()->doneCurrent();
 
         presentThread->setContext(widget->context());
+        connect(presentThread.data(), &QThread::started, [] { setThreadName("OpenGL Present Thread"); });
         // Start execution
         presentThread->start();
     }
@@ -371,14 +376,14 @@ void OpenGLDisplayPlugin::customizeContext() {
                 auto usage = gpu::Texture::Usage::Builder().withColor().withAlpha();
                 cursorData.texture->setUsage(usage.build());
                 cursorData.texture->setStoredMipFormat(gpu::Element(gpu::VEC4, gpu::NUINT8, gpu::RGBA));
-                cursorData.texture->assignStoredMip(0, image.byteCount(), image.constBits());
+                cursorData.texture->assignStoredMip(0, image.sizeInBytes(), image.constBits());
                 cursorData.texture->setAutoGenerateMips(true);
             }
         }
     }
 
     if (!_linearToSRGBPipeline) {
-        gpu::StatePointer blendState = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer blendState = std::make_shared<gpu::State>();
         blendState->setDepthTest(gpu::State::DepthTest(false));
         blendState->setBlendFunction(true,
                                      gpu::State::SRC_ALPHA, gpu::State::BLEND_OP_ADD,
@@ -386,19 +391,20 @@ void OpenGLDisplayPlugin::customizeContext() {
                                      gpu::State::FACTOR_ALPHA, gpu::State::BLEND_OP_ADD,
                                      gpu::State::ONE);
 
-        gpu::StatePointer scissorState = gpu::StatePointer(new gpu::State());
+        gpu::StatePointer scissorState = std::make_shared<gpu::State>();
         scissorState->setDepthTest(gpu::State::DepthTest(false));
         scissorState->setScissorEnable(true);
 
         _drawTexturePipeline = gpu::Pipeline::create(gpu::Shader::createProgram(DrawTexture), scissorState);
 
-        _linearToSRGBPipeline = gpu::Pipeline::create(gpu::Shader::createProgram(DrawTextureGammaLinearToSRGB), scissorState);
+        _drawTextureSqueezePipeline =
+            gpu::Pipeline::create(gpu::Shader::createProgram(shader::display_plugins::program::DrawTextureWithVisionSqueeze), scissorState);
 
-        _SRGBToLinearPipeline = gpu::Pipeline::create(gpu::Shader::createProgram(DrawTextureGammaSRGBToLinear), scissorState);
+        _linearToSRGBPipeline = gpu::Pipeline::create(gpu::Shader::createProgram(DrawTextureLinearToSRGB), scissorState);
 
-        _hudPipeline = gpu::Pipeline::create(gpu::Shader::createProgram(DrawTexture), blendState);
+        _SRGBToLinearPipeline = gpu::Pipeline::create(gpu::Shader::createProgram(DrawTextureSRGBToLinear), scissorState);
 
-        _mirrorHUDPipeline = gpu::Pipeline::create(gpu::Shader::createProgram(DrawTextureMirroredX), blendState);
+        _hudPipeline = gpu::Pipeline::create(gpu::Shader::createProgram(DrawTextureSRGBToLinear), blendState);
 
         _cursorPipeline = gpu::Pipeline::create(gpu::Shader::createProgram(DrawTransformedTexture), blendState);
     }
@@ -409,11 +415,11 @@ void OpenGLDisplayPlugin::customizeContext() {
 void OpenGLDisplayPlugin::uncustomizeContext() {
 
     _drawTexturePipeline.reset();
+    _drawTextureSqueezePipeline.reset();
     _linearToSRGBPipeline.reset();
     _SRGBToLinearPipeline.reset();
     _cursorPipeline.reset();
     _hudPipeline.reset();
-    _mirrorHUDPipeline.reset();
     _compositeFramebuffer.reset();
 
     withPresentThreadLock([&] {
@@ -474,30 +480,48 @@ void OpenGLDisplayPlugin::submitFrame(const gpu::FramePointer& newFrame) {
     });
 }
 
+ktx::StoragePointer textureToKtx(const gpu::Texture& texture) {
+    ktx::Header header;
+    {
+        auto gpuDims = texture.getDimensions();
+        header.pixelWidth = gpuDims.x;
+        header.pixelHeight = gpuDims.y;
+        header.pixelDepth = 0;
+    }
+
+    {
+        auto gltexelformat = gpu::gl::GLTexelFormat::evalGLTexelFormat(texture.getStoredMipFormat());
+        header.glInternalFormat = gltexelformat.internalFormat;
+        header.glFormat = gltexelformat.format;
+        header.glBaseInternalFormat = gltexelformat.format;
+        header.glType = gltexelformat.type;
+        header.glTypeSize = 1;
+        header.numberOfMipmapLevels = 1 + texture.getMaxMip();
+    }
+
+    auto memKtx = ktx::KTX::createBare(header);
+    auto storage = memKtx->_storage;
+    uint32_t faceCount = std::max(header.numberOfFaces, 1u);
+    uint32_t mipCount = std::max(header.numberOfMipmapLevels, 1u);
+    for (uint32_t mip = 0; mip < mipCount; ++mip) {
+        for (uint32_t face = 0; face < faceCount; ++face) {
+            const auto& image = memKtx->_images[mip];
+            auto& faceBytes = const_cast<gpu::Byte*&>(image._faceBytes[face]);
+            if (texture.isStoredMipFaceAvailable(mip, face)) {
+                auto storedImage = texture.accessStoredMipFace(mip, face);
+                auto storedSize = storedImage->size();
+                memcpy(faceBytes, storedImage->data(), storedSize);
+            }
+        }
+    }
+    return storage;
+}
+
 void OpenGLDisplayPlugin::captureFrame(const std::string& filename) const {
     withOtherThreadContext([&] {
         using namespace gpu;
-        auto glBackend = std::static_pointer_cast<gpu::gl::GLBackend>(getBackend());
-        FramebufferPointer framebuffer{ Framebuffer::create("captureFramebuffer") };
-        TextureCapturer captureLambda = [&](const std::string& filename, const gpu::TexturePointer& texture, uint16 layer) {
-            QImage image;
-            if (texture->getUsageType() == TextureUsageType::STRICT_RESOURCE) {
-                image = QImage{ 1, 1, QImage::Format_ARGB32 };
-                auto storedImage = texture->accessStoredMipFace(0, 0);
-                memcpy(image.bits(), storedImage->data(), image.sizeInBytes());
-            //if (texture == textureCache->getWhiteTexture()) {
-            //} else if (texture == textureCache->getBlackTexture()) {
-            //} else if (texture == textureCache->getBlueTexture()) {
-            //} else if (texture == textureCache->getGrayTexture()) {
-            } else {
-                ivec4 rect = { 0, 0, texture->getWidth(), texture->getHeight() };
-                framebuffer->setRenderBuffer(0, texture, layer);
-                glBackend->syncGPUObject(*framebuffer);
-
-                image = QImage{ rect.z, rect.w, QImage::Format_ARGB32 };
-                glBackend->downloadFramebuffer(framebuffer, rect, image);
-            }
-            QImageWriter(filename.c_str()).write(image);
+        TextureCapturer captureLambda = [&](const gpu::TexturePointer& texture)->storage::StoragePointer {
+            return textureToKtx(*texture);
         };
 
         if (_currentFrame) {
@@ -582,30 +606,15 @@ void OpenGLDisplayPlugin::updateFrameData() {
     });
 }
 
-std::function<void(gpu::Batch&, const gpu::TexturePointer&, bool mirror)> OpenGLDisplayPlugin::getHUDOperator() {
+std::function<void(gpu::Batch&, const gpu::TexturePointer&)> OpenGLDisplayPlugin::getHUDOperator() {
     auto hudPipeline = _hudPipeline;
-    auto hudMirrorPipeline = _mirrorHUDPipeline;
-    auto hudStereo = isStereo();
-    auto hudCompositeFramebufferSize = _compositeFramebuffer->getSize();
-    std::array<glm::ivec4, 2> hudEyeViewports;
-    for_each_eye([&](Eye eye) {
-        hudEyeViewports[eye] = eyeViewport(eye);
-    });
-    return [=](gpu::Batch& batch, const gpu::TexturePointer& hudTexture, bool mirror) {
-        auto pipeline = mirror ? hudMirrorPipeline : hudPipeline;
-        if (pipeline && hudTexture) {
-            batch.enableStereo(false);
-            batch.setPipeline(pipeline);
+    auto hudCompositeFramebufferSize = getRecommendedRenderSize();
+    return [=](gpu::Batch& batch, const gpu::TexturePointer& hudTexture) {
+        if (hudPipeline && hudTexture) {
+            batch.setPipeline(hudPipeline);
             batch.setResourceTexture(0, hudTexture);
-            if (hudStereo) {
-                for_each_eye([&](Eye eye) {
-                    batch.setViewportTransform(hudEyeViewports[eye]);
-                    batch.draw(gpu::TRIANGLE_STRIP, 4);
-                });
-            } else {
-                batch.setViewportTransform(ivec4(uvec2(0), hudCompositeFramebufferSize));
-                batch.draw(gpu::TRIANGLE_STRIP, 4);
-            }
+            batch.setViewportTransform(ivec4(uvec2(0), hudCompositeFramebufferSize));
+            batch.draw(gpu::TRIANGLE_STRIP, 4);
         }
     };
 }
@@ -615,23 +624,19 @@ void OpenGLDisplayPlugin::compositePointer() {
     const auto& cursorData = _cursorsData[cursorManager.getCursor()->getIcon()];
     auto cursorTransform = DependencyManager::get<CompositorHelper>()->getReticleTransform(glm::mat4());
     render([&](gpu::Batch& batch) {
-        batch.enableStereo(false);
         batch.setProjectionTransform(mat4());
         batch.setFramebuffer(_compositeFramebuffer);
         batch.setPipeline(_cursorPipeline);
         batch.setResourceTexture(0, cursorData.texture);
         batch.resetViewTransform();
         batch.setModelTransform(cursorTransform);
-        if (isStereo()) {
-            for_each_eye([&](Eye eye) {
-                batch.setViewportTransform(eyeViewport(eye));
-                batch.draw(gpu::TRIANGLE_STRIP, 4);
-            });
-        } else {
-            batch.setViewportTransform(ivec4(uvec2(0), _compositeFramebuffer->getSize()));
-            batch.draw(gpu::TRIANGLE_STRIP, 4);
-        }
+        batch.setViewportTransform(ivec4(uvec2(0), _compositeFramebuffer->getSize()));
+        batch.draw(gpu::TRIANGLE_STRIP, 4);
     });
+}
+
+void OpenGLDisplayPlugin::setupCompositeScenePipeline(gpu::Batch& batch) {
+    batch.setPipeline(_drawTexturePipeline);
 }
 
 void OpenGLDisplayPlugin::compositeScene() {
@@ -642,8 +647,8 @@ void OpenGLDisplayPlugin::compositeScene() {
         batch.setStateScissorRect(ivec4(uvec2(), _compositeFramebuffer->getSize()));
         batch.resetViewTransform();
         batch.setProjectionTransform(mat4());
-        batch.setPipeline(getCompositeScenePipeline());
         batch.setResourceTexture(0, _currentFrame->framebuffer->getRenderBuffer(0));
+        setupCompositeScenePipeline(batch);
         batch.draw(gpu::TRIANGLE_STRIP, 4);
     });
 }
@@ -872,16 +877,6 @@ bool OpenGLDisplayPlugin::beginFrameRender(uint32_t frameIndex) {
     return Parent::beginFrameRender(frameIndex);
 }
 
-ivec4 OpenGLDisplayPlugin::eyeViewport(Eye eye) const {
-    uvec2 vpSize = _compositeFramebuffer->getSize();
-    vpSize.x /= 2;
-    uvec2 vpPos;
-    if (eye == Eye::Right) {
-        vpPos.x = vpSize.x;
-    }
-    return ivec4(vpPos, vpSize);
-}
-
 const gpu::BackendPointer& OpenGLDisplayPlugin::getBackend() const {
     static const gpu::BackendPointer EMPTY;
     
@@ -901,9 +896,9 @@ OpenGLDisplayPlugin::~OpenGLDisplayPlugin() {
 }
 
 void OpenGLDisplayPlugin::updateCompositeFramebuffer() {
-    auto renderSize = glm::uvec2(getRecommendedRenderSize());
+    auto renderSize = getRecommendedRenderSize();
     if (!_compositeFramebuffer || _compositeFramebuffer->getSize() != renderSize) {
-        _compositeFramebuffer = gpu::FramebufferPointer(gpu::Framebuffer::create("OpenGLDisplayPlugin::composite", gpu::Element::COLOR_RGBA_32, renderSize.x, renderSize.y));
+        _compositeFramebuffer = gpu::FramebufferPointer(gpu::Framebuffer::create("OpenGLDisplayPlugin::composite", gpu::Element::COLOR_SRGBA_32, renderSize.x, renderSize.y));
     }
 }
 
@@ -964,8 +959,3 @@ void OpenGLDisplayPlugin::copyTextureToQuickFramebuffer(NetworkTexturePointer ne
 gpu::PipelinePointer OpenGLDisplayPlugin::getRenderTexturePipeline() {
     return _drawTexturePipeline;
 }
-
-gpu::PipelinePointer OpenGLDisplayPlugin::getCompositeScenePipeline() {
-    return _drawTexturePipeline;
-}
-

@@ -24,7 +24,7 @@ class SoundCacheScriptingInterface : public ScriptableResourceCache, public Depe
 
     // Properties are copied over from ResourceCache (see ResourceCache.h for reason).
 
-    /**jsdoc
+    /*@jsdoc
      * The <code>SoundCache</code> API manages sound cache resources.
      *
      * @namespace SoundCache
@@ -39,6 +39,10 @@ class SoundCacheScriptingInterface : public ScriptableResourceCache, public Depe
      * @property {number} numCached - Total number of cached resource. <em>Read-only.</em>
      * @property {number} sizeTotal - Size in bytes of all resources. <em>Read-only.</em>
      * @property {number} sizeCached - Size in bytes of all cached resources. <em>Read-only.</em>
+     * @property {number} numGlobalQueriesPending - Total number of global queries pending (across all resource cache managers).
+     *     <em>Read-only.</em>
+     * @property {number} numGlobalQueriesLoading - Total number of global queries loading (across all resource cache managers).
+     *     <em>Read-only.</em>
      *
      * @borrows ResourceCache.getResourceList as getResourceList
      * @borrows ResourceCache.updateTotalSize as updateTotalSize
@@ -49,7 +53,7 @@ class SoundCacheScriptingInterface : public ScriptableResourceCache, public Depe
 public:
     SoundCacheScriptingInterface();
 
-    /**jsdoc
+    /*@jsdoc
      * Loads the content of an audio file into a {@link SoundObject}, ready for playback by {@link Audio.playSound}.
      * @function SoundCache.getSound
      * @param {string} url - The URL of the audio file to load &mdash; Web, ATP, or file. See {@link SoundObject} for supported 

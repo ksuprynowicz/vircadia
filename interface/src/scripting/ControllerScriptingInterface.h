@@ -25,7 +25,7 @@
 class ScriptEngine;
 
 
-/**jsdoc
+/*@jsdoc
  * The <code>Controller</code> API provides facilities to interact with computer and controller hardware.
  *
  * <h3>Facilities</h3>
@@ -168,7 +168,6 @@ class ScriptEngine;
  *       <td><code>startFarTrigger</code><br /><code>continueFarTrigger</code><br /><code>stopFarTrigger</code></td>
  *       <td>These methods are called when a user is more than 0.3m away from the entity, the entity is triggerable, and the 
  *         user starts, continues, or stops squeezing the trigger.</td>
- *       </td>
  *       <td>A light switch that can be toggled on and off from a distance.</td>
  *     </tr>
  *     <tr>
@@ -217,25 +216,25 @@ class ScriptEngine;
  *
  * @property {Controller.Actions} Actions - Predefined actions on Interface and the user's avatar. These can be used as end
  *     points in a {@link RouteObject} mapping. A synonym for <code>Controller.Hardware.Actions</code>.
- *     <em>Read-only.</em><br /><br />
- *     Default mappings are provided from the <code>Controller.Hardware.Keyboard</code> and <code>Controller.Standard</code> to 
- *     actions in 
+ *     <em>Read-only.</em>
+ *     <p>Default mappings are provided from the <code>Controller.Hardware.Keyboard</code> and <code>Controller.Standard</code> 
+ *     to actions in 
  *     <a href="https://github.com/highfidelity/hifi/blob/master/interface/resources/controllers/keyboardMouse.json">
  *     keyboardMouse.json</a> and 
  *     <a href="https://github.com/highfidelity/hifi/blob/master/interface/resources/controllers/standard.json">
- *     standard.json</a>, respectively.
+ *     standard.json</a>, respectively.</p>
  *
  * @property {Controller.Hardware} Hardware - Standard and hardware-specific controller and computer outputs, plus predefined 
  *     actions on Interface and the user's avatar. The outputs can be mapped to <code>Actions</code> or functions in a 
- *     {@link RouteObject} mapping. Additionally, hardware-specific controller outputs can be mapped to <code>Standard</code> 
- *     controller outputs. <em>Read-only.</em>
+ *     {@link RouteObject} mapping. Additionally, hardware-specific controller outputs can be mapped to 
+ *     <code>Controller.Standard</code> controller outputs. <em>Read-only.</em>
  *
  * @property {Controller.Standard} Standard - Standard controller outputs that can be mapped to <code>Actions</code> or 
- *     functions in a {@link RouteObject} mapping. <em>Read-only.</em><br /><br />
- *     Each hardware device has a mapping from its outputs to <code>Controller.Standard</code> items, specified in a JSON file. 
+ *     functions in a {@link RouteObject} mapping. <em>Read-only.</em>
+ *     <p>Each hardware device has a mapping from its outputs to <code>Controller.Standard</code> items, specified in a JSON file. 
  *     For example, <a href="https://github.com/highfidelity/hifi/blob/master/interface/resources/controllers/leapmotion.json">
  *     leapmotion.json</a> and 
- *     <a href="https://github.com/highfidelity/hifi/blob/master/interface/resources/controllers/vive.json">vive.json</a>.
+ *     <a href="https://github.com/highfidelity/hifi/blob/master/interface/resources/controllers/vive.json">vive.json</a>.</p>
  */
 
 /// handles scripting of input controller commands from JS
@@ -266,7 +265,7 @@ public:
 
 public slots:
 
-    /**jsdoc
+    /*@jsdoc
      * Disables default Interface actions for a particular key event.
      * @function Controller.captureKeyEvents
      * @param {KeyEvent} event - Details of the key event to be captured. The <code>key</code> property must be specified. The 
@@ -285,7 +284,7 @@ public slots:
      */
     virtual void captureKeyEvents(const KeyEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Re-enables default Interface actions for a particular key event that has been disabled using 
      * {@link Controller.captureKeyEvents|captureKeyEvents}.
      * @function Controller.releaseKeyEvents
@@ -294,7 +293,7 @@ public slots:
      */
     virtual void releaseKeyEvents(const KeyEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Disables default Interface actions for a joystick.
      * @function Controller.captureJoystick
      * @param {number} joystickID - The integer ID of the joystick.
@@ -302,7 +301,7 @@ public slots:
      */
     virtual void captureJoystick(int joystickIndex);
 
-    /**jsdoc
+    /*@jsdoc
      * Re-enables default Interface actions for a joystick that has been disabled using 
      * {@link Controller.captureJoystick|captureJoystick}.
      * @function Controller.releaseJoystick
@@ -311,7 +310,7 @@ public slots:
      */
     virtual void releaseJoystick(int joystickIndex);
 
-    /**jsdoc
+    /*@jsdoc
      * Disables {@link Entities.mousePressOnEntity} and {@link Entities.mouseDoublePressOnEntity} events on entities.
      * @function Controller.captureEntityClickEvents
      * @example <caption>Disable entity click events for a short period.</caption>
@@ -329,7 +328,7 @@ public slots:
      */
     virtual void captureEntityClickEvents();
 
-    /**jsdoc
+    /*@jsdoc
      * Re-enables {@link Entities.mousePressOnEntity} and {@link Entities.mouseDoublePressOnEntity} events on entities that were 
      * disabled using {@link Controller.captureEntityClickEvents|captureEntityClickEvents}.
      * @function Controller.releaseEntityClickEvents
@@ -337,14 +336,14 @@ public slots:
     virtual void releaseEntityClickEvents();
 
 
-    /**jsdoc
+    /*@jsdoc
      * Gets the dimensions of the Interface window's interior if in desktop mode or the HUD surface if in HMD mode.
      * @function Controller.getViewportDimensions
      * @returns {Vec2} The dimensions of the Interface window interior if in desktop mode or HUD surface if in HMD mode.
      */
     virtual glm::vec2 getViewportDimensions() const;
 
-    /**jsdoc
+    /*@jsdoc
      * Gets the recommended area to position UI on the HUD surface if in HMD mode or Interface's window interior if in desktop 
      * mode.
      * @function Controller.getRecommendedHUDRect
@@ -352,7 +351,7 @@ public slots:
      */
     virtual QVariant getRecommendedHUDRect() const;
 
-    /**jsdoc
+    /*@jsdoc
      * Enables or disables the virtual game pad that is displayed on certain devices (e.g., Android).
      * @function Controller.setVPadEnabled
      * @param {boolean} enable - If <code>true</code> then the virtual game pad doesn't work, otherwise it does work provided 
@@ -361,14 +360,14 @@ public slots:
      */
     virtual void setVPadEnabled(bool enable);
 
-    /**jsdoc
+    /*@jsdoc
      * Shows or hides the virtual game pad that is displayed on certain devices (e.g., Android).
      * @function Controller.setVPadHidden
      * @param {boolean} hidden - If <code>true</code> then the virtual game pad is hidden, otherwise it is shown.
      */
     virtual void setVPadHidden(bool hidden); // Call it when a window should hide it
 
-    /**jsdoc
+    /*@jsdoc
      * Sets the amount of extra margin between the virtual game pad that is displayed on certain devices (e.g., Android) and 
      * the bottom of the display.
      * @function Controller.setVPadExtraBottomMargin
@@ -377,7 +376,7 @@ public slots:
     virtual void setVPadExtraBottomMargin(int margin);
 
 signals:
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a keyboard key is pressed.
      * @function Controller.keyPressEvent
      * @param {KeyEvent} event - Details of the key press.
@@ -389,7 +388,7 @@ signals:
      */
     void keyPressEvent(const KeyEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a keyboard key is released from being pressed.
      * @function Controller.keyReleaseEvent
      * @param {KeyEvent} event - Details of the key release.
@@ -397,7 +396,7 @@ signals:
      */
     void keyReleaseEvent(const KeyEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the mouse moves.
      * @function Controller.mouseMoveEvent
      * @param {MouseEvent} event - Details of the mouse movement.
@@ -409,7 +408,7 @@ signals:
      */
     void mouseMoveEvent(const MouseEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a mouse button is pressed.
      * @function Controller.mousePressEvent
      * @param {MouseEvent} event - Details of the button press.
@@ -417,7 +416,7 @@ signals:
      */
     void mousePressEvent(const MouseEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a mouse button is double-pressed.
      * @function Controller.mouseDoublePressEvent
      * @param {MouseEvent} event - Details of the button double-press.
@@ -425,7 +424,7 @@ signals:
      */
     void mouseDoublePressEvent(const MouseEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a mouse button is released from being pressed.
      * @function Controller.mouseReleaseEvent
      * @param {MouseEvent} event - Details of the button release.
@@ -433,7 +432,7 @@ signals:
      */
     void mouseReleaseEvent(const MouseEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a touch event starts in the Interface window on a touch-enabled display or device.
      * @function Controller.touchBeginEvent
      * @param {TouchEvent} event - Details of the touch begin.
@@ -445,7 +444,7 @@ signals:
      */
     void touchBeginEvent(const TouchEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a touch event ends in the Interface window on a touch-enabled display or device.
      * @function Controller.touchEndEvent
      * @param {TouchEvent} event - Details of the touch end.
@@ -453,7 +452,7 @@ signals:
      */
     void touchEndEvent(const TouchEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a touch event update occurs in the Interface window on a touch-enabled display or device.
      * @function Controller.touchUpdateEvent
      * @param {TouchEvent} event - Details of the touch update.
@@ -461,7 +460,7 @@ signals:
      */
     void touchUpdateEvent(const TouchEvent& event);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the mouse wheel is rotated.
      * @function Controller.wheelEvent
      * @param {WheelEvent} event - Details of the wheel movement.

@@ -19,10 +19,11 @@
 
 class QScriptEngine;
 
-/**jsdoc
+/*@jsdoc
  * Information about an animation resource, created by {@link AnimationCache.getAnimation}.
  *
  * @class AnimationObject
+ * @hideconstructor
  *
  * @hifi-interface
  * @hifi-client-entity
@@ -41,14 +42,14 @@ class AnimationObject : public QObject, protected QScriptable {
 
 public:
     
-    /**jsdoc
+    /*@jsdoc
      * Gets the names of the joints that are animated.
      * @function AnimationObject.getJointNames
      * @returns {string[]} The names of the joints that are animated.
      */
     Q_INVOKABLE QStringList getJointNames() const;
     
-    /**jsdoc
+    /*@jsdoc
      * Gets the frames in the animation.
      * @function AnimationObject.getFrames
      * @returns {AnimationFrameObject[]} The frames in the animation.
@@ -56,10 +57,11 @@ public:
     Q_INVOKABLE QVector<HFMAnimationFrame> getFrames() const;
 };
 
-/**jsdoc
- * Joint rotations in one frame of an animation.
+/*@jsdoc
+ * Joint rotations in one frame of an {@link AnimationObject}.
  *
  * @class AnimationFrameObject
+ * @hideconstructor
  *
  * @hifi-interface
  * @hifi-client-entity
@@ -76,7 +78,7 @@ class AnimationFrameObject : public QObject, protected QScriptable {
 
 public:
     
-    /**jsdoc
+    /*@jsdoc
      * Gets the joint rotations in the animation frame.
      * @function AnimationFrameObject.getRotations
      * @returns {Quat[]} The joint rotations in the animation frame.

@@ -4,6 +4,7 @@
 //
 //  Created by Seth Alves on 2017-2-10
 //  Copyright 2017 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -54,7 +55,7 @@ Rectangle {
 
         Text {
             id: text1
-            text: qsTr("Model URL")
+            text: qsTr("Model URL <i>(.fbx, .fst, .glb, .gltf, .obj, .gz)</i>")
             color: "#ffffff"
             font.pixelSize: 12
         }
@@ -120,6 +121,12 @@ Rectangle {
                 spacing: 10
 
                 CheckBox {
+                    id: useOriginalPivot
+                    text: qsTr("Use Original Pivot")
+                    checked: true
+                }
+
+                CheckBox {
                     id: grabbable
                     text: qsTr("Grabbable")
                 }
@@ -135,19 +142,12 @@ Rectangle {
                     height: 400
                     spacing: 20
 
-                    Image {
-                        id: image1
-                        width: 30
-                        height: 30
-                        source: "qrc:/qtquickplugin/images/template_image.png"
-                    }
-
                     Text {
                         id: text2
                         width: 160
                         x: dynamic.width / 2
                         color: "#ffffff"
-                        text: qsTr("Models with automatic collisions set to 'Exact' cannot be dynamic, and should not be used as floors")
+                        text: qsTr("Models with automatic collisions set to 'Exact' cannot be dynamic.")
                         wrapMode: Text.WordWrap
                         font.pixelSize: 12
                     }
@@ -215,7 +215,7 @@ Rectangle {
 
                     Button {
                         id: button1
-                        text: qsTr("Add")
+                        text: qsTr("Create")
                         z: -1
                         enabled: false
                         onClicked: {
@@ -225,7 +225,8 @@ Rectangle {
                                     url: modelURL.text,
                                     dynamic: dynamic.checked,
                                     collisionShapeIndex: collisionType.currentIndex,
-                                    grabbable: grabbable.checked
+                                    grabbable: grabbable.checked,
+                                    useOriginalPivot: useOriginalPivot.checked
                                 }
                             });
                         }

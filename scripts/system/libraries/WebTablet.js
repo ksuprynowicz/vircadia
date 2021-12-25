@@ -10,9 +10,9 @@
 /* global getControllerWorldLocation, Tablet, WebTablet:true, HMD, Settings, Script,
    Vec3, Quat, MyAvatar, Entities, Overlays, Camera, Messages, Xform, clamp, Controller, Mat4, resizeTablet */
 
-Script.include(Script.resolvePath("../libraries/utils.js"));
-Script.include(Script.resolvePath("../libraries/controllers.js"));
-Script.include(Script.resolvePath("../libraries/Xform.js"));
+Script.include(Script.resolvePath("utils.js"));
+Script.include(Script.resolvePath("controllers.js"));
+Script.include(Script.resolvePath("Xform.js"));
 
 var Y_AXIS = {x: 0, y: 1, z: 0};
 var X_AXIS = {x: 1, y: 0, z: 0};
@@ -37,7 +37,7 @@ var TABLET_NATURAL_DIMENSIONS = {x: 32.083, y: 48.553, z: 2.269};
 
 var HOME_BUTTON_TEXTURE = Script.resourcesPath() + "images/button-close.png";
 // var HOME_BUTTON_TEXTURE = Script.resourcesPath() + "meshes/tablet-with-home-button.fbx/tablet-with-home-button.fbm/button-close.png";
-// var TABLET_MODEL_PATH = "http://hifi-content.s3.amazonaws.com/alan/dev/tablet-with-home-button.fbx";
+// var TABLET_MODEL_PATH = Script.getExternalPath(Script.ExternalPaths.HF_Content, "/alan/dev/tablet-with-home-button.fbx");
 
 var LOCAL_TABLET_MODEL_PATH = Script.resourcesPath() + "meshes/tablet-with-home-button-small-bezel.fbx";
 var HIGH_PRIORITY = 1;
@@ -52,8 +52,8 @@ function calcSpawnInfo(hand, landscape) {
 
     var LEFT_HAND = Controller.Standard.LeftHand;
     var sensorToWorldScale = MyAvatar.sensorToWorldScale;
-    var headPos = (HMD.active && Camera.mode === "first person") ? HMD.position : Camera.position;
-    var headRot = Quat.cancelOutRollAndPitch((HMD.active && Camera.mode === "first person") ?
+    var headPos = (HMD.active && (Camera.mode === "first person" || Camera.mode === "first person look at")) ? HMD.position : Camera.position;
+    var headRot = Quat.cancelOutRollAndPitch((HMD.active && (Camera.mode === "first person" || Camera.mode === "first person look at")) ?
         HMD.orientation : Camera.orientation);
 
     var right = Quat.getRight(headRot);
@@ -82,9 +82,7 @@ function calcSpawnInfo(hand, landscape) {
 cleanUpOldMaterialEntities = function() {
     var avatarEntityData = MyAvatar.getAvatarEntityData();
     for (var entityID in avatarEntityData) {
-        var entityName = Entities.getEntityProperties(entityID, ["name"]).name;
-
-        if (entityName === TABLET_MATERIAL_ENTITY_NAME) {
+        if (avatarEntityData[entityID].name === TABLET_MATERIAL_ENTITY_NAME) {
             Entities.deleteEntity(entityID);
         }
     }
@@ -166,6 +164,7 @@ WebTablet = function (url, width, dpi, hand, location, visible) {
         parentID: this.tabletEntityID,
         parentJointIndex: -1,
         showKeyboardFocusHighlight: false,
+        grabbable: false,
         visible: visible
     });
 
@@ -380,8 +379,8 @@ WebTablet.prototype.calculateWorldAttitudeRelativeToCamera = function (windowPos
     var TABLET_TEXEL_PADDING = {x: 60, y: 90};
     var X_CLAMP = (DESKTOP_TABLET_SCALE / 100) * ((this.getTabletTextureResolution().x / 2) + TABLET_TEXEL_PADDING.x);
     var Y_CLAMP = (DESKTOP_TABLET_SCALE / 100) * ((this.getTabletTextureResolution().y / 2) + TABLET_TEXEL_PADDING.y);
-    windowPos.x = clamp(windowPos.x, X_CLAMP, Window.innerWidth - X_CLAMP);
-    windowPos.y = clamp(windowPos.y, Y_CLAMP, Window.innerHeight - Y_CLAMP);
+    windowPos.x = hifiClamp(windowPos.x, X_CLAMP, Window.innerWidth - X_CLAMP);
+    windowPos.y = hifiClamp(windowPos.y, Y_CLAMP, Window.innerHeight - Y_CLAMP);
 
     var fov = (Settings.getValue('fieldOfView') || DEFAULT_VERTICAL_FIELD_OF_VIEW) * (Math.PI / 180);
 

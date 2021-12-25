@@ -22,9 +22,13 @@
 #include "AnimationLogging.h"
 #include "CubicHermiteSpline.h"
 #include "AnimUtil.h"
+#include "AnimSkeleton.h"
 
 static const int MAX_TARGET_MARKERS = 30;
 static const float JOINT_CHAIN_INTERP_TIME = 0.5f;
+
+static QTime debounceJointWarningsClock;
+static const int JOINT_WARNING_DEBOUNCE_TIME = 30000; // 30 seconds
 
 static void lookupJointInfo(const AnimInverseKinematics::JointChainInfo& jointChainInfo,
                             int indexA, int indexB,
@@ -63,7 +67,7 @@ AnimInverseKinematics::IKTargetVar::IKTargetVar(const QString& jointNameIn, cons
     poleVectorVar(poleVectorVarIn),
     weight(weightIn),
     numFlexCoefficients(flexCoefficientsIn.size()),
-    jointIndex(-1)
+    jointIndex(AnimSkeleton::INVALID_JOINT_INDEX)
 {
     numFlexCoefficients = std::min(numFlexCoefficients, (size_t)MAX_FLEX_COEFFICIENTS);
     for (size_t i = 0; i < numFlexCoefficients; i++) {
@@ -91,6 +95,7 @@ AnimInverseKinematics::IKTargetVar::IKTargetVar(const IKTargetVar& orig) :
 }
 
 AnimInverseKinematics::AnimInverseKinematics(const QString& id) : AnimNode(AnimNode::Type::InverseKinematics, id) {
+    debounceJointWarningsClock.start();
 }
 
 AnimInverseKinematics::~AnimInverseKinematics() {
@@ -158,27 +163,35 @@ void AnimInverseKinematics::setTargetVars(const QString& jointName, const QStrin
     }
 }
 
+bool debounceJointWarnings() {
+    if (debounceJointWarningsClock.elapsed() >= JOINT_WARNING_DEBOUNCE_TIME) {
+        debounceJointWarningsClock.restart();
+        return true;
+    }
+    return false;
+}
+
 void AnimInverseKinematics::computeTargets(const AnimVariantMap& animVars, std::vector<IKTarget>& targets, const AnimPoseVec& underPoses) {
 
-    _hipsTargetIndex = -1;
+    _hipsTargetIndex = AnimSkeleton::INVALID_JOINT_INDEX;
 
     targets.reserve(_targetVarVec.size());
 
     for (auto& targetVar : _targetVarVec) {
 
         // update targetVar jointIndex cache
-        if (targetVar.jointIndex == -1) {
+        if (targetVar.jointIndex == AnimSkeleton::INVALID_JOINT_INDEX) {
             int jointIndex = _skeleton->nameToJointIndex(targetVar.jointName);
             if (jointIndex >= 0) {
                 // this targetVar has a valid joint --> cache the indices
                 targetVar.jointIndex = jointIndex;
-            } else {
+            } else if (debounceJointWarnings()) {
                 qCWarning(animation) << "AnimInverseKinematics could not find jointName" << targetVar.jointName << "in skeleton";
             }
         }
 
         IKTarget target;
-        if (targetVar.jointIndex != -1) {
+        if (targetVar.jointIndex != AnimSkeleton::INVALID_JOINT_INDEX) {
             target.setType(animVars.lookup(targetVar.typeVar, (int)IKTarget::Type::RotationAndPosition));
             target.setIndex(targetVar.jointIndex);
             if (target.getType() != IKTarget::Type::Unknown) {
@@ -213,6 +226,12 @@ void AnimInverseKinematics::computeTargets(const AnimVariantMap& animVars, std::
     }
 }
 
+float AnimInverseKinematics::getInterpolationAlpha(float timer) {
+    float alpha = (JOINT_CHAIN_INTERP_TIME - timer) / JOINT_CHAIN_INTERP_TIME;
+    alpha = 1.0f - powf(2.0f, -10.0f * alpha);
+    return alpha;
+}
+
 void AnimInverseKinematics::solve(const AnimContext& context, const std::vector<IKTarget>& targets, float dt, JointChainInfoVec& jointChainInfoVec) {
     // compute absolute poses that correspond to relative target poses
     AnimPoseVec absolutePoses;
@@ -226,6 +245,8 @@ void AnimInverseKinematics::solve(const AnimContext& context, const std::vector<
     for (auto& accumulator : _translationAccumulators) {
         accumulator.clearAndClean();
     }
+
+    std::map<int, int> targetToChainMap;
 
     float maxError = 0.0f;
     int numLoops = 0;
@@ -248,17 +269,13 @@ void AnimInverseKinematics::solve(const AnimContext& context, const std::vector<
                 break;
             }
         }
-
+        
         // on last iteration, interpolate jointChains, if necessary
         if (numLoops == MAX_IK_LOOPS) {
             for (size_t i = 0; i < _prevJointChainInfoVec.size(); i++) {
+                targetToChainMap.insert(std::pair<int, int>(_prevJointChainInfoVec[i].target.getIndex(), (int)i));
                 if (_prevJointChainInfoVec[i].timer > 0.0f) {
-
-                    float alpha = (JOINT_CHAIN_INTERP_TIME - _prevJointChainInfoVec[i].timer) / JOINT_CHAIN_INTERP_TIME;
-
-                    // ease in expo
-                    alpha = 1.0f - powf(2.0f, -10.0f * alpha);
-
+                    float alpha = getInterpolationAlpha(_prevJointChainInfoVec[i].timer);
                     size_t chainSize = std::min(_prevJointChainInfoVec[i].jointInfoVec.size(), jointChainInfoVec[i].jointInfoVec.size());
 
                     if (jointChainInfoVec[i].target.getType() != IKTarget::Type::Unknown) {
@@ -313,7 +330,7 @@ void AnimInverseKinematics::solve(const AnimContext& context, const std::vector<
         // update the absolutePoses
         for (int i = 0; i < (int)_relativePoses.size(); ++i) {
             auto parentIndex = _skeleton->getParentIndex((int)i);
-            if (parentIndex != -1) {
+            if (parentIndex != AnimSkeleton::INVALID_JOINT_INDEX) {
                 absolutePoses[i] = absolutePoses[parentIndex] * _relativePoses[i];
             }
         }
@@ -335,23 +352,48 @@ void AnimInverseKinematics::solve(const AnimContext& context, const std::vector<
     // finally set the relative rotation of each tip to agree with absolute target rotation
     for (auto& target: targets) {
         int tipIndex = target.getIndex();
-        int parentIndex = (tipIndex >= 0) ? _skeleton->getParentIndex(tipIndex) : -1;
-
+        int parentIndex = (tipIndex >= 0) ? _skeleton->getParentIndex(tipIndex) : AnimSkeleton::INVALID_JOINT_INDEX;
+        int chainIndex = targetToChainMap[tipIndex];
+        bool needsInterpolation = _prevJointChainInfoVec[chainIndex].timer > 0.0f;
+        float alpha = needsInterpolation ? getInterpolationAlpha(_prevJointChainInfoVec[chainIndex].timer) : 0.0f;
         // update rotationOnly targets that don't lie on the ik chain of other ik targets.
-        if (parentIndex != -1 && !_rotationAccumulators[tipIndex].isDirty() && target.getType() == IKTarget::Type::RotationOnly) {
-            const glm::quat& targetRotation = target.getRotation();
-            // compute tip's new parent-relative rotation
-            // Q = Qp * q   -->   q' = Qp^ * Q
-            glm::quat newRelativeRotation = glm::inverse(absolutePoses[parentIndex].rot()) * targetRotation;
-            RotationConstraint* constraint = getConstraint(tipIndex);
-            if (constraint) {
-                constraint->apply(newRelativeRotation);
-                // TODO: ATM the final rotation target just fails but we need to provide
-                // feedback to the IK system so that it can adjust the bones up the skeleton
-                // to help this rotation target get met.
+        if (parentIndex != AnimSkeleton::INVALID_JOINT_INDEX && !_rotationAccumulators[tipIndex].isDirty() && 
+            (target.getType() == IKTarget::Type::RotationOnly || target.getType() == IKTarget::Type::Unknown)) {
+            if (target.getType() == IKTarget::Type::RotationOnly) {
+                const glm::quat& targetRotation = target.getRotation();
+                // compute tip's new parent-relative rotation
+                // Q = Qp * q   -->   q' = Qp^ * Q
+                glm::quat newRelativeRotation = glm::inverse(absolutePoses[parentIndex].rot()) * targetRotation;
+                RotationConstraint* constraint = getConstraint(tipIndex);
+                if (constraint) {
+                    constraint->apply(newRelativeRotation);
+                    // TODO: ATM the final rotation target just fails but we need to provide
+                    // feedback to the IK system so that it can adjust the bones up the skeleton
+                    // to help this rotation target get met.
+                }
+                if (needsInterpolation) {
+                    _relativePoses[tipIndex].rot() = safeMix(_relativePoses[tipIndex].rot(), newRelativeRotation, alpha);
+                } else {
+                    _relativePoses[tipIndex].rot() = newRelativeRotation;
+                }
+                // Add last known rotations to interpolate from
+                if (_rotationOnlyIKRotations.find(tipIndex) == _rotationOnlyIKRotations.end()) {
+                    _rotationOnlyIKRotations.insert(std::pair<int, glm::quat>(tipIndex, _relativePoses[tipIndex].rot()));
+                } else {
+                    _rotationOnlyIKRotations[tipIndex] = _relativePoses[tipIndex].rot();
+                }
+                absolutePoses[tipIndex].rot() = targetRotation;
+            } else {
+                bool rotationSnapshotExist = _rotationOnlyIKRotations.find(tipIndex) != _rotationOnlyIKRotations.end();
+                if (needsInterpolation) {
+                    if (rotationSnapshotExist) {
+                        glm::quat lastKnownRotation = _rotationOnlyIKRotations[tipIndex];
+                        _relativePoses[tipIndex].rot() = safeMix(_relativePoses[tipIndex].rot(), lastKnownRotation, (1 - alpha));
+                    }
+                } else if (rotationSnapshotExist) {
+                    _rotationOnlyIKRotations.erase(tipIndex);
+                }
             }
-            _relativePoses[tipIndex].rot() = newRelativeRotation;
-            absolutePoses[tipIndex].rot() = targetRotation;
         }
     }
 
@@ -393,11 +435,11 @@ void AnimInverseKinematics::solveTargetWithCCD(const AnimContext& context, const
 
     int tipIndex = target.getIndex();
     int pivotIndex = _skeleton->getParentIndex(tipIndex);
-    if (pivotIndex == -1 || pivotIndex == _hipsIndex) {
+    if (pivotIndex == AnimSkeleton::INVALID_JOINT_INDEX || pivotIndex == _hipsIndex) {
         return;
     }
     int pivotsParentIndex = _skeleton->getParentIndex(pivotIndex);
-    if (pivotsParentIndex == -1) {
+    if (pivotsParentIndex == AnimSkeleton::INVALID_JOINT_INDEX) {
         // TODO?: handle case where tip's parent is root?
         return;
     }
@@ -431,7 +473,6 @@ void AnimInverseKinematics::solveTargetWithCCD(const AnimContext& context, const
             constrained = constraint->apply(tipRelativeRotation);
             if (constrained) {
                 tipOrientation = tipParentOrientation * tipRelativeRotation;
-                tipRelativeRotation = tipRelativeRotation;
             }
         }
 
@@ -445,7 +486,7 @@ void AnimInverseKinematics::solveTargetWithCCD(const AnimContext& context, const
     chainDepth++;
 
     // descend toward root, pivoting each joint to get tip closer to target position
-    while (pivotIndex != _hipsIndex && pivotsParentIndex != -1) {
+    while (pivotIndex != _hipsIndex && pivotsParentIndex != AnimSkeleton::INVALID_JOINT_INDEX) {
 
         assert(chainDepth < jointChainInfoOut.jointInfoVec.size());
 
@@ -539,12 +580,12 @@ void AnimInverseKinematics::solveTargetWithCCD(const AnimContext& context, const
     if (target.getPoleVectorEnabled()) {
         int topJointIndex = target.getIndex();
         int midJointIndex = _skeleton->getParentIndex(topJointIndex);
-        if (midJointIndex != -1) {
+        if (midJointIndex != AnimSkeleton::INVALID_JOINT_INDEX) {
             int baseJointIndex = _skeleton->getParentIndex(midJointIndex);
-            if (baseJointIndex != -1) {
+            if (baseJointIndex != AnimSkeleton::INVALID_JOINT_INDEX) {
                 int baseParentJointIndex = _skeleton->getParentIndex(baseJointIndex);
                 AnimPose topPose, midPose, basePose;
-                int topChainIndex = -1, baseChainIndex = -1;
+                int topChainIndex = AnimSkeleton::INVALID_JOINT_INDEX, baseChainIndex = AnimSkeleton::INVALID_JOINT_INDEX;
                 const size_t MAX_CHAIN_DEPTH = 30;
                 AnimPose postAbsPoses[MAX_CHAIN_DEPTH];
                 AnimPose accum = absolutePoses[_hipsIndex];
@@ -716,7 +757,7 @@ void AnimInverseKinematics::computeAndCacheSplineJointInfosForIKTarget(const Ani
 
     int index = target.getIndex();
     int endIndex = _skeleton->getParentIndex(_hipsIndex);
-    while (index != endIndex) {
+    while (index != endIndex && index != AnimSkeleton::INVALID_JOINT_INDEX) {
         AnimPose defaultPose = _skeleton->getAbsoluteDefaultPose(index);
 
         float ratio = glm::dot(defaultPose.trans() - basePose.trans(), baseToTipNormal) / baseToTipLength;
@@ -929,6 +970,10 @@ const AnimPoseVec& AnimInverseKinematics::overlay(const AnimVariantMap& animVars
                         (jointChainInfoVec[i].target.getType() != _prevJointChainInfoVec[i].target.getType() ||
                          jointChainInfoVec[i].target.getPoleVectorEnabled() != _prevJointChainInfoVec[i].target.getPoleVectorEnabled())) {
                         _prevJointChainInfoVec[i].timer = JOINT_CHAIN_INTERP_TIME;
+                        // Clear the rotations when the target is known
+                        if (jointChainInfoVec[i].target.getType() != IKTarget::Type::Unknown) {
+                            _rotationOnlyIKRotations.erase(jointChainInfoVec[i].target.getIndex());
+                        }
                     }
                 }
             }
@@ -1416,7 +1461,7 @@ void AnimInverseKinematics::setSkeletonInternal(AnimSkeleton::ConstPointer skele
 
     // invalidate all targetVars
     for (auto& targetVar: _targetVarVec) {
-        targetVar.jointIndex = -1;
+        targetVar.jointIndex = AnimSkeleton::INVALID_JOINT_INDEX;
     }
 
     for (auto& accumulator: _rotationAccumulators) {
@@ -1436,18 +1481,18 @@ void AnimInverseKinematics::setSkeletonInternal(AnimSkeleton::ConstPointer skele
         if (_hipsIndex >= 0) {
             _hipsParentIndex = _skeleton->getParentIndex(_hipsIndex);
         } else {
-            _hipsParentIndex = -1;
+            _hipsParentIndex = AnimSkeleton::INVALID_JOINT_INDEX;
         }
 
         _leftHandIndex = _skeleton->nameToJointIndex("LeftHand");
         _rightHandIndex = _skeleton->nameToJointIndex("RightHand");
     } else {
         clearConstraints();
-        _headIndex = -1;
-        _hipsIndex = -1;
-        _hipsParentIndex = -1;
-        _leftHandIndex = -1;
-        _rightHandIndex = -1;
+        _headIndex = AnimSkeleton::INVALID_JOINT_INDEX;
+        _hipsIndex = AnimSkeleton::INVALID_JOINT_INDEX;
+        _hipsParentIndex = AnimSkeleton::INVALID_JOINT_INDEX;
+        _leftHandIndex = AnimSkeleton::INVALID_JOINT_INDEX;
+        _rightHandIndex = AnimSkeleton::INVALID_JOINT_INDEX;
     }
 }
 
@@ -1487,7 +1532,7 @@ void AnimInverseKinematics::debugDrawRelativePoses(const AnimContext& context) c
 
         // draw line to parent
         int parentIndex = _skeleton->getParentIndex(i);
-        if (parentIndex != -1) {
+        if (parentIndex != AnimSkeleton::INVALID_JOINT_INDEX) {
             glm::vec3 parentPos = transformPoint(geomToWorldMatrix, poses[parentIndex].trans());
             DebugDraw::getInstance().drawRay(pos, parentPos, GRAY);
         }
@@ -1536,7 +1581,7 @@ void AnimInverseKinematics::debugDrawIKChain(const JointChainInfo& jointChainInf
             DebugDraw::getInstance().drawRay(pos, pos + AXIS_LENGTH * zAxis, BLUE);
 
             // draw line to parent
-            if (parentIndex != -1) {
+            if (parentIndex != AnimSkeleton::INVALID_JOINT_INDEX) {
                 glm::vec3 parentPos = transformPoint(geomToWorldMatrix, poses[parentIndex].trans());
                 glm::vec4 color = GRAY;
 
@@ -1585,13 +1630,13 @@ void AnimInverseKinematics::debugDrawConstraints(const AnimContext& context) con
 
             // draw line to parent
             int parentIndex = _skeleton->getParentIndex(i);
-            if (parentIndex != -1) {
+            if (parentIndex != AnimSkeleton::INVALID_JOINT_INDEX) {
                 glm::vec3 parentPos = transformPoint(geomToWorldMatrix, poses[parentIndex].trans());
                 DebugDraw::getInstance().drawRay(pos, parentPos, GRAY);
             }
 
             glm::quat parentAbsRot;
-            if (parentIndex != -1) {
+            if (parentIndex != AnimSkeleton::INVALID_JOINT_INDEX) {
                 parentAbsRot = poses[parentIndex].rot();
             }
 
@@ -1689,7 +1734,7 @@ void AnimInverseKinematics::preconditionRelativePosesToAvoidLimbLock(const AnimC
     const float MIN_AXIS_LENGTH = 1.0e-4f;
 
     for (auto& target : targets) {
-        if (target.getIndex() != -1 && target.getType() == IKTarget::Type::RotationAndPosition) {
+        if (target.getIndex() != AnimSkeleton::INVALID_JOINT_INDEX && target.getType() == IKTarget::Type::RotationAndPosition) {
             for (int i = 0; i < NUM_LIMBS; i++) {
                 if (limbs[i].first == target.getIndex()) {
                     int tipIndex = limbs[i].first;

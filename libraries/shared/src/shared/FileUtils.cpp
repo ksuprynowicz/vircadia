@@ -21,6 +21,7 @@
 #include <QtCore/QUrl>
 #include <QtCore/QTextStream>
 #include <QtCore/QRegularExpression>
+#include <QtCore/QFileSelector>
 #include <QtGui/QDesktopServices>
 
 
@@ -66,8 +67,8 @@ QString FileUtils::readFile(const QString& filename) {
     return result;
 }
 
-QStringList FileUtils::readLines(const QString& filename, QString::SplitBehavior splitBehavior) {
-    return readFile(filename).split(QRegularExpression("[\\r\\n]"), QString::SkipEmptyParts);
+QStringList FileUtils::readLines(const QString& filename, Qt::SplitBehavior splitBehavior) {
+    return readFile(filename).split(QRegularExpression("[\\r\\n]"), Qt::SkipEmptyParts);
 }
 
 void FileUtils::locateFile(const QString& filePath) {
@@ -175,4 +176,16 @@ bool FileUtils::canCreateFile(const QString& fullPath) {
         }
     }
     return true;
+}
+
+QString FileUtils::getParentPath(const QString& fullPath) {
+    return QFileInfo(fullPath).absoluteDir().canonicalPath();
+}
+
+bool FileUtils::exists(const QString& fileName) {
+    return QFileInfo(fileName).exists();
+}
+
+bool FileUtils::isRelative(const QString& fileName) {
+    return QFileInfo(fileName).isRelative();
 }

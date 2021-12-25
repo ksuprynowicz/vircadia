@@ -13,7 +13,7 @@
 #include <qmath.h>
 
 EntityItemPointer GizmoEntityItem::factory(const EntityItemID& entityID, const EntityItemProperties& properties) {
-    Pointer entity(new GizmoEntityItem(entityID), [](EntityItem* ptr) { ptr->deleteLater(); });
+    Pointer entity(new GizmoEntityItem(entityID), [](GizmoEntityItem* ptr) { ptr->deleteLater(); });
     entity->setProperties(properties);
     return entity;
 }
@@ -39,25 +39,16 @@ EntityItemProperties GizmoEntityItem::getProperties(const EntityPropertyFlags& d
     return properties;
 }
 
-bool GizmoEntityItem::setProperties(const EntityItemProperties& properties) {
-    bool somethingChanged = EntityItem::setProperties(properties); // set the properties in our base class
+bool GizmoEntityItem::setSubClassProperties(const EntityItemProperties& properties) {
+    bool somethingChanged = false;
 
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(gizmoType, setGizmoType);
     withWriteLock([&] {
         bool ringPropertiesChanged = _ringProperties.setProperties(properties);
         somethingChanged |= ringPropertiesChanged;
+        _needsRenderUpdate |= ringPropertiesChanged;
     });
 
-    if (somethingChanged) {
-        bool wantDebug = false;
-        if (wantDebug) {
-            uint64_t now = usecTimestampNow();
-            int elapsed = now - getLastEdited();
-            qCDebug(entities) << "GizmoEntityItem::setProperties() AFTER update... edited AGO=" << elapsed <<
-                    "now=" << now << " getLastEdited()=" << getLastEdited();
-        }
-        setLastEdited(properties.getLastEdited());
-    }
     return somethingChanged;
 }
 
@@ -112,14 +103,16 @@ bool GizmoEntityItem::supportsDetailedIntersection() const {
 }
 
 bool GizmoEntityItem::findDetailedRayIntersection(const glm::vec3& origin, const glm::vec3& direction,
-                                                  OctreeElementPointer& element,
+                                                  const glm::vec3& viewFrustumPos, OctreeElementPointer& element,
                                                   float& distance, BoxFace& face, glm::vec3& surfaceNormal,
                                                   QVariantMap& extraInfo, bool precisionPicking) const {
     glm::vec3 dimensions = getScaledDimensions();
     glm::vec2 xyDimensions(dimensions.x, dimensions.z);
-    glm::quat rotation = getWorldOrientation();
-    rotation = glm::angleAxis(-(float)M_PI_2, rotation * Vectors::RIGHT) * rotation;
+    BillboardMode billboardMode = getBillboardMode();
+    glm::quat rotation = billboardMode == BillboardMode::NONE ? getWorldOrientation() : getLocalOrientation();
+    rotation *= glm::angleAxis(-(float)M_PI_2, Vectors::RIGHT);
     glm::vec3 position = getWorldPosition() + rotation * (dimensions * (ENTITY_ITEM_DEFAULT_REGISTRATION_POINT - getRegistrationPoint()));
+    rotation = BillboardModeHelpers::getBillboardRotation(position, rotation, billboardMode, viewFrustumPos);
 
     if (findRayRectangleIntersection(origin, direction, rotation, position, xyDimensions, distance)) {
         glm::vec3 hitPosition = origin + (distance * direction);
@@ -145,15 +138,17 @@ bool GizmoEntityItem::findDetailedRayIntersection(const glm::vec3& origin, const
 }
 
 bool GizmoEntityItem::findDetailedParabolaIntersection(const glm::vec3& origin, const glm::vec3& velocity, const glm::vec3& acceleration,
-                                                       OctreeElementPointer& element, float& parabolicDistance,
+                                                       const glm::vec3& viewFrustumPos, OctreeElementPointer& element, float& parabolicDistance,
                                                        BoxFace& face, glm::vec3& surfaceNormal,
                                                        QVariantMap& extraInfo, bool precisionPicking) const {
     //// Scale the dimensions by the diameter
     glm::vec3 dimensions = getScaledDimensions();
     glm::vec2 xyDimensions(dimensions.x, dimensions.z);
-    glm::quat rotation = getWorldOrientation();
-    rotation = glm::angleAxis(-(float)M_PI_2, rotation * Vectors::RIGHT) * rotation;
+    BillboardMode billboardMode = getBillboardMode();
+    glm::quat rotation = billboardMode == BillboardMode::NONE ? getWorldOrientation() : getLocalOrientation();
+    rotation *= glm::angleAxis(-(float)M_PI_2, Vectors::RIGHT);
     glm::vec3 position = getWorldPosition();
+    rotation = BillboardModeHelpers::getBillboardRotation(position, rotation, billboardMode, viewFrustumPos);
 
     glm::quat inverseRot = glm::inverse(rotation);
     glm::vec3 localOrigin = inverseRot * (origin - position);
@@ -185,6 +180,7 @@ bool GizmoEntityItem::findDetailedParabolaIntersection(const glm::vec3& origin, 
 
 void GizmoEntityItem::setGizmoType(GizmoType value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _gizmoType != value;
         _gizmoType = value;
     });
 }

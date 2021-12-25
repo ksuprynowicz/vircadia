@@ -174,7 +174,7 @@ Flickable {
             HifiStylesUit.GraphikSemiBold {
                 id: micControlsTitle
                 text: "Default Mute Controls"
-                Layout.maximumWidth: parent.width
+                Layout.preferredWidth: parent.width
                 height: paintedHeight
                 size: 22
                 color: simplifiedUI.colors.text.white
@@ -223,30 +223,14 @@ Flickable {
                     }
                 }
 
-                SimplifiedControls.Slider {
-                    id: muteOutputSlider
-                    enabled: AudioScriptingInterface.pushToTalkDesktop && attenuateOutputSwitch.checked
-                    Layout.preferredWidth: parent.width
+                SimplifiedControls.Switch {
+                    id: acousticEchoCancellationSwitch
                     Layout.preferredHeight: 18
-                    labelText: "Amount to reduce"
-                    from: 0.0
-                    to: 60.0
-                    defaultValue: 20.0
-                    stepSize: 5.0
-                    value: -1 * AudioScriptingInterface.pushingToTalkOutputGainDesktop
-                    live: true
-                    function updatePushingToTalkOutputGainDesktop(newValue) {
-                        if (AudioScriptingInterface.pushingToTalkOutputGainDesktop !== newValue) {
-                            AudioScriptingInterface.pushingToTalkOutputGainDesktop = newValue;
-                        }
-                    }
-                    onValueChanged: {
-                        updatePushingToTalkOutputGainDesktop(-1 * value);
-                    }
-                    onPressedChanged: {
-                        if (!pressed) {
-                            updatePushingToTalkOutputGainDesktop(-1 * value);
-                        }
+                    Layout.preferredWidth: parent.width
+                    labelTextOn: "Acoustic Echo Cancellation"
+                    checked: AudioScriptingInterface.acousticEchoCancellation
+                    onClicked: {
+                        AudioScriptingInterface.acousticEchoCancellation = !AudioScriptingInterface.acousticEchoCancellation;
                     }
                 }
             }
@@ -260,7 +244,7 @@ Flickable {
             HifiStylesUit.GraphikSemiBold {
                 id: inputDeviceTitle
                 text: "Which input device?"
-                Layout.maximumWidth: parent.width
+                Layout.preferredWidth: parent.width
                 height: paintedHeight
                 size: 22
                 color: simplifiedUI.colors.text.white
@@ -274,13 +258,12 @@ Flickable {
                 Layout.preferredHeight: contentItem.height
                 Layout.topMargin: simplifiedUI.margins.settings.settingsGroupTopMargin
                 interactive: false
-                spacing: simplifiedUI.margins.settings.spacingBetweenRadiobuttons
                 clip: true
                 model: AudioScriptingInterface.devices.input
                 delegate: Item {
-                    width: parent.width
-                    height: inputDeviceCheckbox.height
-
+                     width:  parent.width
+                     height: model.type != "hmd" ? inputDeviceCheckbox.height + simplifiedUI.margins.settings.spacingBetweenRadiobuttons : 0
+                     visible: model.type != "hmd"
                     SimplifiedControls.RadioButton {
                         id: inputDeviceCheckbox
                         anchors.left: parent.left
@@ -356,7 +339,7 @@ Flickable {
             HifiStylesUit.GraphikSemiBold {
                 id: outputDeviceTitle
                 text: "Which output device?"
-                Layout.maximumWidth: parent.width
+                Layout.preferredWidth: parent.width
                 height: paintedHeight
                 size: 22
                 color: simplifiedUI.colors.text.white
@@ -370,13 +353,12 @@ Flickable {
                 Layout.preferredHeight: contentItem.height
                 Layout.topMargin: simplifiedUI.margins.settings.settingsGroupTopMargin
                 interactive: false
-                spacing: simplifiedUI.margins.settings.spacingBetweenRadiobuttons
                 clip: true
                 model: AudioScriptingInterface.devices.output
                 delegate: Item {
                     width: parent.width
-                    height: outputDeviceCheckbox.height
-
+                    height: model.type != "hmd" ? outputDeviceCheckbox.height +simplifiedUI.margins.settings.spacingBetweenRadiobuttons : 0
+                    visible: model.type != "hmd"
                     SimplifiedControls.RadioButton {
                         id: outputDeviceCheckbox
                         anchors.left: parent.left
@@ -402,10 +384,8 @@ Flickable {
                     sample = null;
                 }
                 function playSound() {
-                    // FIXME: MyAvatar is not properly exposed to QML; MyAvatar.qmlPosition is a stopgap
-                    // FIXME: AudioScriptingInterface.playSystemSound should not require position
                     if (sample === null && !isPlaying) {
-                        sample = AudioScriptingInterface.playSystemSound(sound, MyAvatar.qmlPosition);
+                        sample = AudioScriptingInterface.playSystemSound(sound);
                         isPlaying = true;
                         sample.finished.connect(reset);
                     }

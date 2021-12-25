@@ -22,6 +22,7 @@
 #include "HTTPManager.h"
 
 const char* HTTPConnection::StatusCode200 = "200 OK";
+const char* HTTPConnection::StatusCode204 = "204 No Content";
 const char* HTTPConnection::StatusCode301 = "301 Moved Permanently";
 const char* HTTPConnection::StatusCode302 = "302 Found";
 const char* HTTPConnection::StatusCode400 = "400 Bad Request";
@@ -123,9 +124,9 @@ HTTPConnection::HTTPConnection(QTcpSocket* socket, HTTPManager* parentManager) :
     _socket->setParent(this);
 
     // connect initial slots
-    connect(socket, SIGNAL(readyRead()), SLOT(readRequest()));
-    connect(socket, SIGNAL(error(QAbstractSocket::SocketError)), SLOT(deleteLater()));
-    connect(socket, SIGNAL(disconnected()), SLOT(deleteLater()));
+    connect(socket, &QAbstractSocket::readyRead, this, &HTTPConnection::readRequest);
+    connect(socket, &QAbstractSocket::errorOccurred, this, &HTTPConnection::deleteLater);
+    connect(socket, &QAbstractSocket::disconnected, this, &HTTPConnection::deleteLater);
 }
 
 HTTPConnection::~HTTPConnection() {
@@ -175,7 +176,7 @@ QList<FormData> HTTPConnection::parseFormData() const {
             break;
         }
     }
-    
+
     QByteArray start = "--" + boundary;
     QByteArray end = "\r\n--" + boundary + "--\r\n";
 
@@ -337,6 +338,7 @@ void HTTPConnection::readHeaders() {
 
             QByteArray clength = requestHeader("Content-Length");
             if (clength.isEmpty()) {
+                _requestContent = MemoryStorage::make(0);
                 _parentManager->handleHTTPRequest(this, _requestUrl);
 
             } else {
@@ -393,6 +395,6 @@ void HTTPConnection::readContent() {
     if (_requestContent->bytesLeftToWrite() == 0) {
         _socket->disconnect(this, SLOT(readContent()));
 
-        _parentManager->handleHTTPRequest(this, _requestUrl.path());
+        _parentManager->handleHTTPRequest(this, _requestUrl);
     }
 }

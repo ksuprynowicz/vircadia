@@ -19,10 +19,10 @@
 
 #include "ui/InteractiveWindow.h"
 
-/**jsdoc
+/*@jsdoc
  * The <code>Desktop</code> API provides the dimensions of the computer screen, sets the opacity of the HUD surface, and 
  * enables QML and HTML windows to be shown inside or outside of Interface.
-  *
+ *
  * @namespace Desktop
  *
  * @hifi-interface
@@ -42,6 +42,9 @@
  * @property {InteractiveWindow.DockAreas} DockArea - The possible docking locations of an {@link InteractiveWindow}: top, 
  *     bottom, left, or right of the Interface window. 
  *     <em>Read-only.</em>
+ * @property {InteractiveWindow.RelativePositionAnchors} RelativePositionAnchor - The possible relative position anchors for an 
+ *     {@link InteractiveWindow}: none, top left, top right, bottom right, or bottom left of the Interface window. 
+ *     <em>Read-only.</em>
  */
 class DesktopScriptingInterface : public QObject, public Dependency {
     Q_OBJECT
@@ -50,18 +53,21 @@ class DesktopScriptingInterface : public QObject, public Dependency {
 
     Q_PROPERTY(QVariantMap PresentationMode READ getPresentationMode CONSTANT FINAL)
     Q_PROPERTY(QVariantMap DockArea READ getDockArea CONSTANT FINAL)
+    Q_PROPERTY(QVariantMap RelativePositionAnchor READ getRelativePositionAnchor CONSTANT FINAL)
     Q_PROPERTY(int ALWAYS_ON_TOP READ flagAlwaysOnTop CONSTANT FINAL)
     Q_PROPERTY(int CLOSE_BUTTON_HIDES READ flagCloseButtonHides CONSTANT FINAL)
 
 public:
-    /**jsdoc
+    DesktopScriptingInterface(QObject* parent= nullptr, bool restricted = false);
+
+    /*@jsdoc
      * Sets the opacity of the HUD surface.
      * @function Desktop.setHUDAlpha
      * @param {number} alpha - The opacity, <code>0.0 &ndash; 1.0</code>.
      */
     Q_INVOKABLE void setHUDAlpha(float alpha);
 
-    /**jsdoc
+    /*@jsdoc
      * Opens a QML window within Interface: in the Interface window in desktop mode or on the HUD surface in HMD mode. If a 
      * window of the specified name already exists, it is shown, otherwise a new window is created from the QML.
      * @function Desktop.show
@@ -72,13 +78,13 @@ public:
      */
     Q_INVOKABLE void show(const QString& path, const QString&  title);
 
-    /**jsdoc
+    /*@jsdoc
      * Creates a new window that can be displayed either within Interface or as a separate desktop window.
      * @function Desktop.createWindow
      * @param {string} url - The QML file that specifies the window content. The QML file can use a <code>WebView</code> 
      *     control (defined by "WebView.qml" included in the Interface install) to embed an HTML web page (complete with  
      *     <code>EventBridge</code> object).
-     * @param {InteractiveWindow.Properties} [properties] - Initial window properties.
+     * @param {InteractiveWindow.WindowProperties} [properties] - Initial window properties.
      * @returns {InteractiveWindow} A new window object.
      * @example <caption>Open a dialog in its own window separate from Interface.</caption>
      * var nativeWindow = Desktop.createWindow(Script.resourcesPath() + 'qml/OverlayWindowTest.qml', {
@@ -101,9 +107,12 @@ private:
     static int flagAlwaysOnTop() { return AlwaysOnTop; }
     static int flagCloseButtonHides() { return CloseButtonHides; }
 
-    static QVariantMap getDockArea();
+    Q_INVOKABLE InteractiveWindowPointer createWindowOnThread(const QString& sourceUrl, const QVariantMap& properties, QThread* targetThread);
 
+    static QVariantMap getDockArea();
+    static QVariantMap getRelativePositionAnchor();
     Q_INVOKABLE static QVariantMap getPresentationMode();
+    const bool _restricted;
 };
 
 

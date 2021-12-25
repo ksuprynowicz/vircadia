@@ -39,6 +39,8 @@
 #include "RenderUtilsLogging.h"
 #include <Trace.h>
 
+#include <BlendshapeConstants.h>
+
 using namespace std;
 
 int nakedModelPointerTypeId = qRegisterMetaType<ModelPointer>();
@@ -48,7 +50,7 @@ int normalTypeVecTypeId = qRegisterMetaType<QVector<NormalType>>("QVector<Normal
 float Model::FAKE_DIMENSION_PLACEHOLDER = -1.0f;
 #define HTTP_INVALID_COM "http://invalid.com"
 
-Model::Model(QObject* parent, SpatiallyNestable* spatiallyNestableOverride) :
+Model::Model(QObject* parent, SpatiallyNestable* spatiallyNestableOverride, uint64_t created) :
     QObject(parent),
     _renderGeometry(),
     _renderWatcher(_renderGeometry),
@@ -62,7 +64,8 @@ Model::Model(QObject* parent, SpatiallyNestable* spatiallyNestableOverride) :
     _snapModelToRegistrationPoint(false),
     _snappedToRegistrationPoint(false),
     _url(HTTP_INVALID_COM),
-    _renderItemKeyGlobalFlags(render::ItemKey::Builder().withVisible().withTagBits(render::hifi::TAG_ALL_VIEWS).build())
+    _renderItemKeyGlobalFlags(render::ItemKey::Builder().withVisible().withTagBits(render::hifi::TAG_ALL_VIEWS).build()),
+    _created(created)
 {
     // we may have been created in the network thread, but we live in the main thread
     if (_viewState) {
@@ -111,7 +114,8 @@ Transform Model::getTransform() const {
         return transform;
     } else if (_spatiallyNestableOverride) {
         bool success;
-        Transform transform = _spatiallyNestableOverride->getTransform(success);
+        Transform transform = _billboardMode == BillboardMode::NONE ? _spatiallyNestableOverride->getTransform(success) :
+            _spatiallyNestableOverride->getTransformWithOnlyLocalRotation(success);
         if (success) {
             transform.setScale(getScale());
             return transform;
@@ -148,10 +152,11 @@ void Model::setOffset(const glm::vec3& offset) {
     // if someone manually sets our offset, then we are no longer snapped to center
     _snapModelToRegistrationPoint = false;
     _snappedToRegistrationPoint = false;
+    _forceOffset = true;
 }
 
 void Model::calculateTextureInfo() {
-    if (!_hasCalculatedTextureInfo && isLoaded() && getGeometry()->areTexturesLoaded() && !_modelMeshRenderItemsMap.isEmpty()) {
+    if (!_hasCalculatedTextureInfo && isLoaded() && getGeometry()->areTexturesLoaded() && !_modelMeshRenderItems.isEmpty()) {
         size_t textureSize = 0;
         int textureCount = 0;
         bool allTexturesLoaded = true;
@@ -223,6 +228,8 @@ void Model::updateRenderItems() {
         modelTransform.setScale(glm::vec3(1.0f));
 
         PrimitiveMode primitiveMode = self->getPrimitiveMode();
+        BillboardMode billboardMode = self->getBillboardMode();
+        auto renderWithZones = self->getRenderWithZones();
         auto renderItemKeyGlobalFlags = self->getRenderItemKeyGlobalFlags();
         bool cauterized = self->isCauterized();
 
@@ -238,7 +245,8 @@ void Model::updateRenderItems() {
             bool useDualQuaternionSkinning = self->getUseDualQuaternionSkinning();
 
             transaction.updateItem<ModelMeshPartPayload>(itemID, [modelTransform, meshState, useDualQuaternionSkinning,
-                                                                  invalidatePayloadShapeKey, primitiveMode, renderItemKeyGlobalFlags, cauterized](ModelMeshPartPayload& data) {
+                                                                  invalidatePayloadShapeKey, primitiveMode, billboardMode, renderItemKeyGlobalFlags,
+                                                                  cauterized, renderWithZones](ModelMeshPartPayload& data) {
                 if (useDualQuaternionSkinning) {
                     data.updateClusterBuffer(meshState.clusterDualQuaternions);
                     data.computeAdjustedLocalBound(meshState.clusterDualQuaternions);
@@ -247,24 +255,11 @@ void Model::updateRenderItems() {
                     data.computeAdjustedLocalBound(meshState.clusterMatrices);
                 }
 
-                Transform renderTransform = modelTransform;
-
-                if (useDualQuaternionSkinning) {
-                    if (meshState.clusterDualQuaternions.size() == 1 || meshState.clusterDualQuaternions.size() == 2) {
-                        const auto& dq = meshState.clusterDualQuaternions[0];
-                        Transform transform(dq.getRotation(),
-                                            dq.getScale(),
-                                            dq.getTranslation());
-                        renderTransform = modelTransform.worldTransform(Transform(transform));
-                    }
-                } else {
-                    if (meshState.clusterMatrices.size() == 1 || meshState.clusterMatrices.size() == 2) {
-                        renderTransform = modelTransform.worldTransform(Transform(meshState.clusterMatrices[0]));
-                    }
-                }
-                data.updateTransformForSkinnedMesh(renderTransform, modelTransform);
+                data.updateTransformForSkinnedMesh(modelTransform, meshState, useDualQuaternionSkinning);
 
                 data.setCauterized(cauterized);
+                data.setRenderWithZones(renderWithZones);
+                data.setBillboardMode(billboardMode);
                 data.updateKey(renderItemKeyGlobalFlags);
                 data.setShapeKey(invalidatePayloadShapeKey, primitiveMode, useDualQuaternionSkinning);
             });
@@ -277,11 +272,6 @@ void Model::updateRenderItems() {
 void Model::setRenderItemsNeedUpdate() {
     _renderItemsNeedUpdate = true;
     emit requestRenderUpdate();
-}
-
-void Model::setPrimitiveMode(PrimitiveMode primitiveMode) {
-    _primitiveMode = primitiveMode;
-    setRenderItemsNeedUpdate();
 }
 
 void Model::reset() {
@@ -305,7 +295,20 @@ bool Model::updateGeometry() {
     // TODO: should all Models have a valid _rig?
     if (_rig.jointStatesEmpty() && getHFMModel().joints.size() > 0) {
         initJointStates();
-        assert(_meshStates.empty());
+
+        if (!_meshStates.empty()) {
+            // See https://github.com/vircadia/vircadia/issues/958 for a discussion of the issues found here with
+            // a previously existing assert, and the likely reasons for things going wrong here.
+            //
+            // TL;DR: There may be a threading issue, or it could be due to something lacking joints, which would cause
+            // initJointStates() to fail to make _rig.jointStatesEmpty() false, causing things to end up here twice.
+            //
+            // In any case it appears to be safe to simply clear _meshStates here, even though this shouldn't happen.
+            _meshStates.clear();
+            qCWarning(renderutils) << "_meshStates has" << _meshStates.size() << "items when it should have none. Model with URL "
+                                   << _url.toString() << "; translation" << _translation << "; rotation" << _rotation << "; scale" << _scale
+                                   << "; joint state count" << _rig.getJointStateCount() << "; type" << (modelProviderType == NestableType::Avatar ? "Avatar" : "Entity");
+        }
 
         const HFMModel& hfmModel = getHFMModel();
         int i = 0;
@@ -331,18 +334,23 @@ void Model::initJointStates() {
     _rig.initJointStates(hfmModel, modelOffset);
 }
 
-bool Model::findRayIntersectionAgainstSubMeshes(const glm::vec3& origin, const glm::vec3& direction, float& distance,
-                                                BoxFace& face, glm::vec3& surfaceNormal, QVariantMap& extraInfo,
+bool Model::findRayIntersectionAgainstSubMeshes(const glm::vec3& origin, const glm::vec3& direction, const glm::vec3& viewFrustumPos,
+                                                float& distance, BoxFace& face, glm::vec3& surfaceNormal, QVariantMap& extraInfo,
                                                 bool pickAgainstTriangles, bool allowBackface) {
     bool intersectedSomething = false;
 
     // if we aren't active, we can't pick yet...
-    if (!isActive()) {
+    if (!isLoaded()) {
         return intersectedSomething;
     }
 
     // extents is the entity relative, scaled, centered extents of the entity
-    glm::mat4 modelToWorldMatrix = createMatFromQuatAndPos(_rotation, _translation);
+    glm::quat rotation = BillboardModeHelpers::getBillboardRotation(_translation, _rotation, _billboardMode, viewFrustumPos);
+    glm::mat4 transRot = createMatFromQuatAndPos(rotation, _translation);
+    glm::mat4 modelToWorldMatrix = transRot;
+    if (!_snapModelToRegistrationPoint) {
+        modelToWorldMatrix = modelToWorldMatrix * glm::translate(getOriginalOffset());
+    }
     glm::mat4 worldToModelMatrix = glm::inverse(modelToWorldMatrix);
 
     Extents modelExtents = getMeshExtents(); // NOTE: unrotated
@@ -374,8 +382,12 @@ bool Model::findRayIntersectionAgainstSubMeshes(const glm::vec3& origin, const g
             calculateTriangleSets(hfmModel);
         }
 
-        glm::mat4 meshToModelMatrix = glm::scale(_scale) * glm::translate(_offset);
-        glm::mat4 meshToWorldMatrix = modelToWorldMatrix * meshToModelMatrix;
+        glm::mat4 meshToWorldMatrix = transRot;
+        if (_snapModelToRegistrationPoint || _forceOffset) {
+            meshToWorldMatrix = meshToWorldMatrix * (glm::scale(_scale) * glm::translate(_offset));
+        } else {
+            meshToWorldMatrix = meshToWorldMatrix * (glm::scale(_scale) * glm::translate(getNaturalDimensions() * (0.5f - _registrationPoint)));
+        }
         glm::mat4 worldToMeshMatrix = glm::inverse(meshToWorldMatrix);
 
         glm::vec3 meshFrameOrigin = glm::vec3(worldToMeshMatrix * glm::vec4(origin, 1.0f));
@@ -444,7 +456,7 @@ bool Model::findRayIntersectionAgainstSubMeshes(const glm::vec3& origin, const g
             }
         }
 
-        /**jsdoc
+        /*@jsdoc
          * A submesh intersection point.
          * @typedef {object} SubmeshIntersection
          * @property {Vec3} worldIntersectionPoint - The intersection point in world coordinates.
@@ -487,17 +499,22 @@ bool Model::findRayIntersectionAgainstSubMeshes(const glm::vec3& origin, const g
 }
 
 bool Model::findParabolaIntersectionAgainstSubMeshes(const glm::vec3& origin, const glm::vec3& velocity, const glm::vec3& acceleration,
-                                                     float& parabolicDistance, BoxFace& face, glm::vec3& surfaceNormal, QVariantMap& extraInfo,
-                                                     bool pickAgainstTriangles, bool allowBackface) {
+                                                     const glm::vec3& viewFrustumPos, float& parabolicDistance, BoxFace& face, glm::vec3& surfaceNormal,
+                                                     QVariantMap& extraInfo, bool pickAgainstTriangles, bool allowBackface) {
     bool intersectedSomething = false;
 
     // if we aren't active, we can't pick yet...
-    if (!isActive()) {
+    if (!isLoaded()) {
         return intersectedSomething;
     }
 
     // extents is the entity relative, scaled, centered extents of the entity
-    glm::mat4 modelToWorldMatrix = createMatFromQuatAndPos(_rotation, _translation);
+    glm::quat rotation = BillboardModeHelpers::getBillboardRotation(_translation, _rotation, _billboardMode, viewFrustumPos);
+    glm::mat4 transRot = createMatFromQuatAndPos(rotation, _translation);
+    glm::mat4 modelToWorldMatrix = transRot;
+    if (!_snapModelToRegistrationPoint) {
+        modelToWorldMatrix = modelToWorldMatrix * glm::translate(getOriginalOffset());
+    }
     glm::mat4 worldToModelMatrix = glm::inverse(modelToWorldMatrix);
 
     Extents modelExtents = getMeshExtents(); // NOTE: unrotated
@@ -530,8 +547,12 @@ bool Model::findParabolaIntersectionAgainstSubMeshes(const glm::vec3& origin, co
             calculateTriangleSets(hfmModel);
         }
 
-        glm::mat4 meshToModelMatrix = glm::scale(_scale) * glm::translate(_offset);
-        glm::mat4 meshToWorldMatrix = modelToWorldMatrix * meshToModelMatrix;
+        glm::mat4 meshToWorldMatrix = transRot;
+        if (_snapModelToRegistrationPoint || _forceOffset) {
+            meshToWorldMatrix = meshToWorldMatrix * (glm::scale(_scale) * glm::translate(_offset));
+        } else {
+            meshToWorldMatrix = meshToWorldMatrix * (glm::scale(_scale) * glm::translate(getNaturalDimensions() * (0.5f - _registrationPoint)));
+        }
         glm::mat4 worldToMeshMatrix = glm::inverse(meshToWorldMatrix);
 
         glm::vec3 meshFrameOrigin = glm::vec3(worldToMeshMatrix * glm::vec4(origin, 1.0f));
@@ -833,8 +854,8 @@ void Model::calculateTriangleSets(const HFMModel& hfmModel) {
                     int i2 = part.quadIndices[vIndex++];
                     int i3 = part.quadIndices[vIndex++];
 
-                    // track the model space version... these points will be transformed by the FST's offset, 
-                    // which includes the scaling, rotation, and translation specified by the FST/FBX, 
+                    // track the model space version... these points will be transformed by the FST's offset,
+                    // which includes the scaling, rotation, and translation specified by the FST/FBX,
                     // this can't change at runtime, so we can safely store these in our TriangleSet
                     glm::vec3 v0 = glm::vec3(meshTransform * glm::vec4(mesh.vertices[i0], 1.0f));
                     glm::vec3 v1 = glm::vec3(meshTransform * glm::vec4(mesh.vertices[i1], 1.0f));
@@ -855,8 +876,8 @@ void Model::calculateTriangleSets(const HFMModel& hfmModel) {
                     int i1 = part.triangleIndices[vIndex++];
                     int i2 = part.triangleIndices[vIndex++];
 
-                    // track the model space version... these points will be transformed by the FST's offset, 
-                    // which includes the scaling, rotation, and translation specified by the FST/FBX, 
+                    // track the model space version... these points will be transformed by the FST's offset,
+                    // which includes the scaling, rotation, and translation specified by the FST/FBX,
                     // this can't change at runtime, so we can safely store these in our TriangleSet
                     glm::vec3 v0 = glm::vec3(meshTransform * glm::vec4(mesh.vertices[i0], 1.0f));
                     glm::vec3 v1 = glm::vec3(meshTransform * glm::vec4(mesh.vertices[i1], 1.0f));
@@ -877,8 +898,8 @@ void Model::updateRenderItemsKey(const render::ScenePointer& scene) {
     }
     auto renderItemsKey = _renderItemKeyGlobalFlags;
     render::Transaction transaction;
-    foreach(auto item, _modelMeshRenderItemsMap.keys()) {
-        transaction.updateItem<ModelMeshPartPayload>(item, [renderItemsKey](ModelMeshPartPayload& data) {
+    for (auto itemID: _modelMeshRenderItemIDs) {
+        transaction.updateItem<ModelMeshPartPayload>(itemID, [renderItemsKey](ModelMeshPartPayload& data) {
             data.updateKey(renderItemsKey);
         });
     }
@@ -957,6 +978,92 @@ void Model::setCauterized(bool cauterized, const render::ScenePointer& scene) {
     }
 }
 
+void Model::setPrimitiveMode(PrimitiveMode primitiveMode, const render::ScenePointer& scene) {
+    if (_primitiveMode != primitiveMode) {
+        _primitiveMode = primitiveMode;
+        if (!scene) {
+            _needsFixupInScene = true;
+            return;
+        }
+
+        bool useDualQuaternionSkinning = _useDualQuaternionSkinning;
+        std::unordered_map<int, bool> shouldInvalidatePayloadShapeKeyMap;
+
+        for (auto& shape : _modelMeshRenderItemShapes) {
+            shouldInvalidatePayloadShapeKeyMap[shape.meshIndex] = shouldInvalidatePayloadShapeKey(shape.meshIndex);
+        }
+
+        render::Transaction transaction;
+
+        for (int i = 0; i < (int)_modelMeshRenderItemIDs.size(); i++) {
+            auto itemID = _modelMeshRenderItemIDs[i];
+            auto meshIndex = _modelMeshRenderItemShapes[i].meshIndex;
+            bool invalidatePayloadShapeKey = shouldInvalidatePayloadShapeKey(meshIndex);
+            transaction.updateItem<ModelMeshPartPayload>(itemID, [invalidatePayloadShapeKey, primitiveMode, useDualQuaternionSkinning] (ModelMeshPartPayload& data) {
+                data.setShapeKey(invalidatePayloadShapeKey, primitiveMode, useDualQuaternionSkinning);
+            });
+        }
+        scene->enqueueTransaction(transaction);
+    }
+}
+
+void Model::setBillboardMode(BillboardMode billboardMode, const render::ScenePointer& scene) {
+    if (_billboardMode != billboardMode) {
+        _billboardMode = billboardMode;
+        if (!scene) {
+            _needsFixupInScene = true;
+            return;
+        }
+
+        render::Transaction transaction;
+        for (auto item : _modelMeshRenderItemIDs) {
+            transaction.updateItem<ModelMeshPartPayload>(item, [billboardMode](ModelMeshPartPayload& data) {
+                data.setBillboardMode(billboardMode);
+            });
+        }
+        scene->enqueueTransaction(transaction);
+    }
+}
+
+void Model::setCullWithParent(bool cullWithParent, const render::ScenePointer& scene) {
+    if (_cullWithParent != cullWithParent) {
+        _cullWithParent = cullWithParent;
+        if (!scene) {
+            _needsFixupInScene = true;
+            return;
+        }
+
+        render::Transaction transaction;
+        auto renderItemsKey = _renderItemKeyGlobalFlags;
+        for (auto item : _modelMeshRenderItemIDs) {
+            transaction.updateItem<ModelMeshPartPayload>(item, [cullWithParent, renderItemsKey](ModelMeshPartPayload& data) {
+                data.setCullWithParent(cullWithParent);
+                data.updateKey(renderItemsKey);
+            });
+        }
+        scene->enqueueTransaction(transaction);
+    }
+}
+
+void Model::setRenderWithZones(const QVector<QUuid>& renderWithZones, const render::ScenePointer& scene) {
+    if (_renderWithZones != renderWithZones) {
+        _renderWithZones = renderWithZones;
+
+        if (!scene) {
+            _needsFixupInScene = true;
+            return;
+        }
+
+        render::Transaction transaction;
+        for (auto item : _modelMeshRenderItemIDs) {
+            transaction.updateItem<ModelMeshPartPayload>(item, [renderWithZones](ModelMeshPartPayload& data) {
+                data.setRenderWithZones(renderWithZones);
+            });
+        }
+        scene->enqueueTransaction(transaction);
+    }
+}
+
 const render::ItemKey Model::getRenderItemKeyGlobalFlags() const {
     return _renderItemKeyGlobalFlags;
 }
@@ -965,7 +1072,9 @@ bool Model::addToScene(const render::ScenePointer& scene,
                        render::Transaction& transaction,
                        render::Item::Status::Getters& statusGetters,
                        BlendShapeOperator modelBlendshapeOperator) {
+
     if (!_addedToScene && isLoaded()) {
+        updateGeometry();
         updateClusterMatrices();
         if (_modelMeshRenderItems.empty()) {
             createRenderItemSet();
@@ -1037,7 +1146,7 @@ void Model::renderDebugMeshBoxes(gpu::Batch& batch, bool forward) {
     Transform meshToWorld(meshToWorldMatrix);
     batch.setModelTransform(meshToWorld);
 
-    DependencyManager::get<GeometryCache>()->bindSimpleProgram(batch, false, false, false, true, true, forward);
+    DependencyManager::get<GeometryCache>()->bindSimpleProgram(batch, false, false, true, true, forward, graphics::MaterialKey::CULL_NONE);
 
     for (auto& meshTriangleSets : _modelSpaceMeshTriangleSets) {
         for (auto &partTriangleSet : meshTriangleSets) {
@@ -1096,7 +1205,7 @@ void Model::renderDebugMeshBoxes(gpu::Batch& batch, bool forward) {
 }
 
 Extents Model::getBindExtents() const {
-    if (!isActive()) {
+    if (!isLoaded()) {
         return Extents();
     }
     const Extents& bindExtents = getHFMModel().bindExtents;
@@ -1110,21 +1219,12 @@ glm::vec3 Model::getNaturalDimensions() const {
 }
 
 Extents Model::getMeshExtents() const {
-    if (!isActive()) {
-        return Extents();
-    }
-    const Extents& extents = getHFMModel().meshExtents;
-
-    // even though our caller asked for "unscaled" we need to include any fst scaling, translation, and rotation, which
-    // is captured in the offset matrix
-    glm::vec3 minimum = glm::vec3(getHFMModel().offset * glm::vec4(extents.minimum, 1.0f));
-    glm::vec3 maximum = glm::vec3(getHFMModel().offset * glm::vec4(extents.maximum, 1.0f));
-    Extents scaledExtents = { minimum * _scale, maximum * _scale };
-    return scaledExtents;
+    Extents extents = getUnscaledMeshExtents();
+    return { extents.minimum * _scale, extents.maximum * _scale };
 }
 
 Extents Model::getUnscaledMeshExtents() const {
-    if (!isActive()) {
+    if (!isLoaded()) {
         return Extents();
     }
 
@@ -1156,7 +1256,7 @@ void Model::setJointTranslation(int index, bool valid, const glm::vec3& translat
 }
 
 int Model::getParentJointIndex(int jointIndex) const {
-    return (isActive() && jointIndex != -1) ? getHFMModel().joints.at(jointIndex).parentIndex : -1;
+    return (isLoaded() && jointIndex != -1) ? getHFMModel().joints.at(jointIndex).parentIndex : -1;
 }
 
 void Model::setTextures(const QVariantMap& textures) {
@@ -1257,7 +1357,7 @@ QStringList Model::getJointNames() const {
             Q_RETURN_ARG(QStringList, result));
         return result;
     }
-    return isActive() ? getHFMModel().getJointNames() : QStringList();
+    return isLoaded() ? getHFMModel().getJointNames() : QStringList();
 }
 
 void Model::setScaleToFit(bool scaleToFit, const glm::vec3& dimensions, bool forceRescale) {
@@ -1273,7 +1373,7 @@ void Model::setScaleToFit(bool scaleToFit, float largestDimension, bool forceRes
     // mesh, and so we can't do the needed calculations for scaling to fit to a single largest dimension. In this
     // case we will record that we do want to do this, but we will stick our desired single dimension into the
     // first element of the vec3 for the non-fixed aspect ration dimensions
-    if (!isActive()) {
+    if (!isLoaded()) {
         _scaleToFit = scaleToFit;
         if (scaleToFit) {
             _scaleToFitDimensions = glm::vec3(largestDimension, FAKE_DIMENSION_PLACEHOLDER, FAKE_DIMENSION_PLACEHOLDER);
@@ -1345,6 +1445,15 @@ void Model::snapToRegistrationPoint() {
     _snappedToRegistrationPoint = true;
 }
 
+glm::vec3 Model::getOriginalOffset() const {
+    Extents modelMeshExtents = getUnscaledMeshExtents();
+    glm::vec3 dimensions = (modelMeshExtents.maximum - modelMeshExtents.minimum);
+    glm::vec3 offset = modelMeshExtents.minimum + (0.5f * dimensions);
+    glm::mat4 transform = glm::scale(_scale) * glm::translate(offset);
+    return transform[3];
+}
+
+
 void Model::setUseDualQuaternionSkinning(bool value) {
     _useDualQuaternionSkinning = value;
 }
@@ -1354,7 +1463,7 @@ void Model::simulate(float deltaTime, bool fullUpdate) {
     fullUpdate = updateGeometry() || fullUpdate || (_scaleToFit && !_scaledToFit)
                     || (_snapModelToRegistrationPoint && !_snappedToRegistrationPoint);
 
-    if (isActive() && fullUpdate) {
+    if (isLoaded() && fullUpdate) {
         onInvalidate();
 
         // check for scale to fit
@@ -1365,7 +1474,8 @@ void Model::simulate(float deltaTime, bool fullUpdate) {
             snapToRegistrationPoint();
         }
         // update the world space transforms for all joints
-        glm::mat4 parentTransform = glm::scale(_scale) * glm::translate(_offset);
+        glm::mat4 parentTransform = glm::scale(_scale) * ((_snapModelToRegistrationPoint || _forceOffset) ?
+            glm::translate(_offset) : glm::translate(getNaturalDimensions() * (0.5f - _registrationPoint)));
         updateRig(deltaTime, parentTransform);
     }
 }
@@ -1408,16 +1518,19 @@ void Model::updateClusterMatrices() {
         }
     }
 
+    updateBlendshapes();
+}
+
+void Model::updateBlendshapes() {
     // post the blender if we're not currently waiting for one to finish
     auto modelBlender = DependencyManager::get<ModelBlender>();
-    if (modelBlender->shouldComputeBlendshapes() && hfmModel.hasBlendedMeshes() && _blendshapeCoefficients != _blendedBlendshapeCoefficients) {
+    if (modelBlender->shouldComputeBlendshapes() && getHFMModel().hasBlendedMeshes() && _blendshapeCoefficients != _blendedBlendshapeCoefficients) {
         _blendedBlendshapeCoefficients = _blendshapeCoefficients;
         modelBlender->noteRequiresBlend(getThisPointer());
     }
 }
 
 void Model::deleteGeometry() {
-    _deleteGeometryCounter++;
     _meshStates.clear();
     _rig.destroyAnimGraph();
     _blendedBlendshapeCoefficients.clear();
@@ -1439,7 +1552,7 @@ AABox Model::getRenderableMeshBound() const {
         // Build a bound using the last known bound from all the renderItems.
         AABox totalBound;
         for (auto& renderItem : _modelMeshRenderItems) {
-            totalBound += renderItem->getBound();
+            totalBound += renderItem->getBound(nullptr);
         }
         return totalBound;
     }
@@ -1470,10 +1583,6 @@ void Model::createRenderItemSet() {
     transform.setTranslation(_translation);
     transform.setRotation(_rotation);
 
-    Transform offset;
-    offset.setScale(_scale);
-    offset.postTranslate(_offset);
-
     // Run through all of the meshes, and place them into their segregated, but unsorted buckets
     int shapeID = 0;
     uint32_t numMeshes = (uint32_t)meshes.size();
@@ -1486,7 +1595,7 @@ void Model::createRenderItemSet() {
         // Create the render payloads
         int numParts = (int)mesh->getNumParts();
         for (int partIndex = 0; partIndex < numParts; partIndex++) {
-            _modelMeshRenderItems << std::make_shared<ModelMeshPartPayload>(shared_from_this(), i, partIndex, shapeID, transform, offset);
+            _modelMeshRenderItems << std::make_shared<ModelMeshPartPayload>(shared_from_this(), i, partIndex, shapeID, transform, _created);
             auto material = getGeometry()->getShapeMaterial(shapeID);
             _modelMeshMaterialNames.push_back(material ? material->getName() : "");
             _modelMeshRenderItemShapes.emplace_back(ShapeInfo{ (int)i });
@@ -1528,7 +1637,7 @@ std::set<unsigned int> Model::getMeshIDsFromMaterialID(QString parentMaterialNam
         };
 
         if (parentMaterialName.length() > 2 && parentMaterialName.startsWith("[") && parentMaterialName.endsWith("]")) {
-            QStringList list = parentMaterialName.split(",", QString::SkipEmptyParts);
+            QStringList list = parentMaterialName.split(",", Qt::SkipEmptyParts);
             for (int i = 0; i < list.length(); i++) {
                 auto& target = list[i];
                 if (i == 0) {

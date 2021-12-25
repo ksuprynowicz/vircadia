@@ -16,7 +16,7 @@ exports.handlers = {
     beforeParse: function(e) {
         var pathTools = require('path');
         var rootFolder = pathTools.dirname(e.filename);
-        console.log("Scanning hifi source for jsdoc comments...");
+        console.log("Scanning the Vircadia source for JSDoc comments...");
 
         // directories to scan for jsdoc comments
         var dirList = [
@@ -26,10 +26,9 @@ exports.handlers = {
             '../../assignment-client/src/octree',
             '../../interface/src',
             '../../interface/src/assets',
-            '../../interface/src/audio',
+            //'../../interface/src/audio', Exclude AudioScope API from output.
             '../../interface/src/avatar',
             '../../interface/src/commerce',
-            '../../interface/src/devices',
             '../../interface/src/java',
             '../../interface/src/networking',
             '../../interface/src/raypick',
@@ -45,7 +44,7 @@ exports.handlers = {
             '../../libraries/controllers/src/controllers/impl/',
             '../../libraries/display-plugins/src/display-plugins/',
             '../../libraries/entities/src',
-            '../../libraries/fbx/src',
+            '../../libraries/model-serializers/src',
             '../../libraries/graphics/src/graphics/',
             '../../libraries/graphics-scripting/src/graphics-scripting/',
             '../../libraries/image/src/image',
@@ -56,14 +55,15 @@ exports.handlers = {
             '../../libraries/networking/src',
             '../../libraries/octree/src',
             '../../libraries/physics/src',
+            '../../libraries/platform/src/platform/backend',
             '../../libraries/plugins/src/plugins',
+            '../../libraries/procedural/src/procedural',
             '../../libraries/pointers/src',
             '../../libraries/render-utils/src',
             '../../libraries/script-engine/src',
             '../../libraries/shared/src',
             '../../libraries/shared/src/shared',
             '../../libraries/task/src/task',
-            '../../libraries/trackers/src/trackers',
             '../../libraries/ui/src',
             '../../libraries/ui/src/ui',
             '../../plugins/oculus/src',
@@ -83,13 +83,13 @@ exports.handlers = {
                     // load entire file into a string
                     var data = fs.readFileSync(path, "utf8");
 
-                    // this regex searches for blocks starting with /**jsdoc and end with */
-                    var reg = /(\/\*\*jsdoc(.|[\r\n])*?\*\/)/gm;
+                    // this regex searches for blocks starting with /*@jsdoc and end with */
+                    var reg = /(\/\*@jsdoc(.|[\r\n])*?\*\/)/gm;
                     var matches = data.match(reg);
                     if (matches) {
                         // add to source, but strip off c-comment asterisks
                         e.source += matches.map(function (s) {
-                            return s.replace('/**jsdoc', '/**');
+                            return s.replace('/*@jsdoc', '/**');
                         }).join('\n');
                     }
                 }
@@ -124,7 +124,7 @@ exports.handlers = {
             if (rows.length > 0) {
                 var availableIn = "<p class='availableIn'><b>Supported Script Types:</b> " + rows.join(" &bull; ") + "</p>";
              
-                e.doclet.description = (e.doclet.description ? e.doclet.description : "") + availableIn;
+                e.doclet.description = availableIn + (e.doclet.description ? e.doclet.description : "");
             }            
         }
 

@@ -8,12 +8,11 @@
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
 //
 
-#include <thread>
-
 #include <QCommandLineParser>
 #include <QtCore/QProcess>
 #include <QDebug>
 #include <QDir>
+#include <QFileInfo>
 #include <QLocalSocket>
 #include <QLocalServer>
 #include <QSharedMemory>
@@ -35,6 +34,7 @@
 #include "Profile.h"
 
 #ifdef Q_OS_WIN
+#include <Windows.h>
 extern "C" {
     typedef int(__stdcall * CHECKMINSPECPROC) ();
 }
@@ -70,7 +70,7 @@ int main(int argc, const char* argv[]) {
     }
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("High Fidelity Interface");
+    parser.setApplicationDescription("Vircadia");
     QCommandLineOption versionOption = parser.addVersionOption();
     QCommandLineOption helpOption = parser.addHelpOption();
 
@@ -79,13 +79,15 @@ int main(int argc, const char* argv[]) {
     QCommandLineOption noUpdaterOption("no-updater", "Do not show auto-updater");
     QCommandLineOption checkMinSpecOption("checkMinSpec", "Check if machine meets minimum specifications");
     QCommandLineOption runServerOption("runServer", "Whether to run the server");
-    QCommandLineOption serverContentPathOption("serverContentPath", "Where to find server content", "serverContentPath");
+    QCommandLineOption serverContentPathOption("serverContentPath", "Where to find server content <path>", "serverContentPath");
     QCommandLineOption allowMultipleInstancesOption("allowMultipleInstances", "Allow multiple instances to run");
     QCommandLineOption overrideAppLocalDataPathOption("cache", "set test cache <dir>", "dir");
     QCommandLineOption overrideScriptsPathOption(SCRIPTS_SWITCH, "set scripts <path>", "path");
     QCommandLineOption responseTokensOption("tokens", "set response tokens <json>", "json");
     QCommandLineOption displayNameOption("displayName", "set user display name <string>", "string");
     QCommandLineOption setBookmarkOption("setBookmark", "set bookmark key=value pair", "string");
+    QCommandLineOption defaultScriptOverrideOption("defaultScriptsOverride", "override defaultsScripts.js", "string");
+    QCommandLineOption forceCrashReportingOption("forceCrashReporting", "Force crash reporting to initialize");
 
     parser.addOption(urlOption);
     parser.addOption(noLauncherOption);
@@ -99,6 +101,8 @@ int main(int argc, const char* argv[]) {
     parser.addOption(responseTokensOption);
     parser.addOption(displayNameOption);
     parser.addOption(setBookmarkOption);
+    parser.addOption(defaultScriptOverrideOption);
+    parser.addOption(forceCrashReportingOption);
 
     if (!parser.parse(arguments)) {
         std::cout << parser.errorText().toStdString() << std::endl; // Avoid Qt log spam
@@ -115,21 +119,27 @@ int main(int argc, const char* argv[]) {
     }
 
     QString applicationPath;
+    // A temporary application instance is needed to get the location of the running executable
+    // Tests using high_resolution_clock show that this takes about 30-50 microseconds (on my machine, YMMV)
+    // If we wanted to avoid the QCoreApplication, we would need to write our own
+    // cross-platform implementation.
     {
-        // A temporary application instance is needed to get the location of the running executable
-        // Tests using high_resolution_clock show that this takes about 30-50 microseconds (on my machine, YMMV)
-        // If we wanted to avoid the QCoreApplication, we would need to write our own
-        // cross-platform implementation.
         QCoreApplication tempApp(argc, const_cast<char**>(argv));
+#ifdef Q_OS_OSX
+        if (QFileInfo::exists(QCoreApplication::applicationDirPath() + "/../../../config.json")) {
+            applicationPath = QCoreApplication::applicationDirPath() + "/../../../";
+        } else {
+            applicationPath = QCoreApplication::applicationDirPath();
+        }
+#else
         applicationPath = QCoreApplication::applicationDirPath();
+#endif
     }
-
     static const QString APPLICATION_CONFIG_FILENAME = "config.json";
     QDir applicationDir(applicationPath);
     QString configFileName = applicationDir.filePath(APPLICATION_CONFIG_FILENAME);
     QFile configFile(configFileName);
     QString launcherPath;
-    
     if (configFile.exists()) {
         if (!configFile.open(QIODevice::ReadOnly)) {
             qWarning() << "Found application config, but could not open it";
@@ -208,11 +218,12 @@ int main(int argc, const char* argv[]) {
     }
     qDebug() << "UserActivityLogger is enabled:" << ual.isEnabled();
 
-    if (ual.isEnabled()) {
+    bool isCrashHandlerEnabled = ual.isCrashMonitorEnabled() || parser.isSet(forceCrashReportingOption);
+    qDebug() << "Crash handler logger is enabled:" << isCrashHandlerEnabled;
+    if (isCrashHandlerEnabled) {
         auto crashHandlerStarted = startCrashHandler(argv[0]);
         qDebug() << "Crash handler started:" << crashHandlerStarted;
     }
-
 
     const QString& applicationName = getInterfaceSharedMemoryName();
     bool instanceMightBeRunning = true;
@@ -252,7 +263,9 @@ int main(int argc, const char* argv[]) {
         if (socket.waitForConnected(LOCAL_SERVER_TIMEOUT_MS)) {
             if (parser.isSet(urlOption)) {
                 QUrl url = QUrl(parser.value(urlOption));
-                if (url.isValid() && (url.scheme() == URL_SCHEME_HIFI || url.scheme() == URL_SCHEME_HIFIAPP)) {
+                if (url.isValid() && (url.scheme() == URL_SCHEME_VIRCADIA || url.scheme() == URL_SCHEME_VIRCADIAAPP
+                        || url.scheme() == HIFI_URL_SCHEME_HTTP || url.scheme() == HIFI_URL_SCHEME_HTTPS
+                        || url.scheme() == HIFI_URL_SCHEME_FILE)) {
                     qDebug() << "Writing URL to local socket";
                     socket.write(url.toString().toUtf8());
                     if (!socket.waitForBytesWritten(5000)) {
@@ -367,8 +380,9 @@ int main(int argc, const char* argv[]) {
         PROFILE_SYNC_END(startup, "app full ctor", "");
 
 #if defined(Q_OS_LINUX)
-        app.setWindowIcon(QIcon(PathUtils::resourcesPath() + "images/hifi-logo.svg"));
+        app.setWindowIcon(QIcon(PathUtils::resourcesPath() + "images/vircadia-logo.svg"));
 #endif
+        startCrashHookMonitor(&app);
 
         QTimer exitTimer;
         if (traceDuration > 0.0f) {

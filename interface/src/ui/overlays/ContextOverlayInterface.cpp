@@ -14,6 +14,7 @@
 
 #include <EntityTreeRenderer.h>
 #include <NetworkingConstants.h>
+#include <MetaverseAPI.h>
 #include <NetworkAccessManager.h>
 #include <QtNetwork/QNetworkRequest>
 #include <QtNetwork/QNetworkReply>
@@ -80,7 +81,8 @@ ContextOverlayInterface::ContextOverlayInterface() {
 
     auto nodeList = DependencyManager::get<NodeList>();
     auto& packetReceiver = nodeList->getPacketReceiver();
-    packetReceiver.registerListener(PacketType::ChallengeOwnershipReply, this, "handleChallengeOwnershipReplyPacket");
+    packetReceiver.registerListener(PacketType::ChallengeOwnershipReply,
+        PacketReceiver::makeSourcedListenerReference<ContextOverlayInterface>(this, &ContextOverlayInterface::handleChallengeOwnershipReplyPacket));
     _challengeOwnershipTimeoutTimer.setSingleShot(true);
 }
 
@@ -305,7 +307,7 @@ void ContextOverlayInterface::requestOwnershipVerification(const QUuid& entityID
                     QNetworkRequest networkRequest;
                     networkRequest.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
                     networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-                    QUrl requestURL = NetworkingConstants::METAVERSE_SERVER_URL();
+                    QUrl requestURL = MetaverseAPI::getCurrentMetaverseServerURL();
                     requestURL.setPath("/api/v1/commerce/proof_of_purchase_status/transfer");
                     QJsonObject request;
                     request["certificate_id"] = entityProperties.getCertificateID();

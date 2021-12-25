@@ -25,6 +25,7 @@ class JitterSampleConfig : public render::Job::Config {
         Q_PROPERTY(bool freeze MEMBER freeze NOTIFY dirty)
         Q_PROPERTY(bool stop MEMBER stop NOTIFY dirty)
         Q_PROPERTY(int index READ getIndex NOTIFY dirty)
+        Q_PROPERTY(int state READ getState WRITE setState NOTIFY dirty)
 public:
     JitterSampleConfig() : render::Job::Config(true) {}
 
@@ -33,6 +34,7 @@ public:
     bool freeze{ false };
 
     void setIndex(int current);
+    void setState(int state);
 
 public slots:
     int cycleStopPauseRun();
@@ -86,6 +88,7 @@ private:
 
 class AntialiasingConfig : public render::Job::Config {
     Q_OBJECT
+    Q_PROPERTY(int mode READ getAAMode WRITE setAAMode NOTIFY dirty)
     Q_PROPERTY(float blend MEMBER blend NOTIFY dirty)
     Q_PROPERTY(float sharpen MEMBER sharpen NOTIFY dirty)
     Q_PROPERTY(float covarianceGamma MEMBER covarianceGamma NOTIFY dirty)
@@ -106,8 +109,21 @@ class AntialiasingConfig : public render::Job::Config {
 public:
     AntialiasingConfig() : render::Job::Config(true) {}
 
+    enum Mode {
+        NONE = 0,
+        TAA,
+        FXAA,
+        MODE_COUNT
+    };
+    Q_ENUM(Mode) // Stored as signed int.
+
+    void setAAMode(int mode);
+    int getAAMode() const { return _mode; }
+
     void setDebugFXAA(bool debug) { debugFXAAX = (debug ? 0.0f : 1.0f); emit dirty();}
     bool debugFXAA() const { return (debugFXAAX == 0.0f ? true : false); }
+
+    int _mode{ TAA }; // '_' prefix but not private?
 
     float blend{ 0.25f };
     float sharpen{ 0.05f };
@@ -195,13 +211,14 @@ private:
     gpu::PipelinePointer _debugBlendPipeline;
 
     TAAParamsBuffer _params;
+    AntialiasingConfig::Mode _mode{ AntialiasingConfig::TAA };
     float _sharpen{ 0.15f };
     bool _isSharpenEnabled{ true };
 };
 
 
-#else 
-class AntiAliasingConfig : public render::Job::Config {
+#else // User setting for antialias mode will probably be broken.
+class AntiAliasingConfig : public render::Job::Config { // Not to be confused with AntialiasingConfig...
     Q_OBJECT
     Q_PROPERTY(bool enabled MEMBER enabled)
 public:
@@ -220,7 +237,7 @@ public:
     
     const gpu::PipelinePointer& getAntialiasingPipeline();
     const gpu::PipelinePointer& getBlendPipeline();
-    
+
 private:
     gpu::FramebufferPointer _antialiasingBuffer;
     

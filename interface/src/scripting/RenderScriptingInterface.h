@@ -13,22 +13,31 @@
 #include "Application.h"
 
 #include "RenderForward.h"
+#include "AntialiasingEffect.h"
 
-/**jsdoc
- * The <code>Render</code> API allows you to configure the graphics engine
+
+/*@jsdoc
+ * The <code>Render</code> API enables you to configure the graphics engine.
  *
  * @namespace Render
  *
  * @hifi-interface
  * @hifi-client-entity
  * @hifi-avatar
+ *
+ * @property {Render.RenderMethod} renderMethod - The render method being used.
+ * @property {boolean} shadowsEnabled - <code>true</code> if shadows are enabled, <code>false</code> if they're disabled.
+ * @property {boolean} ambientOcclusionEnabled - <code>true</code> if ambient occlusion is enabled, <code>false</code> if it's 
+ *     disabled.
+ * @property {integer} antialiasingMode - The active anti-aliasing mode.
+ * @property {number} viewportResolutionScale - The view port resolution scale, <code>&gt; 0.0</code>.
  */
 class RenderScriptingInterface : public QObject {
     Q_OBJECT
     Q_PROPERTY(RenderMethod renderMethod READ getRenderMethod WRITE setRenderMethod NOTIFY settingsChanged)
     Q_PROPERTY(bool shadowsEnabled READ getShadowsEnabled WRITE setShadowsEnabled NOTIFY settingsChanged)
     Q_PROPERTY(bool ambientOcclusionEnabled READ getAmbientOcclusionEnabled WRITE setAmbientOcclusionEnabled NOTIFY settingsChanged)
-    Q_PROPERTY(bool antialiasingEnabled READ getAntialiasingEnabled WRITE setAntialiasingEnabled NOTIFY settingsChanged)
+    Q_PROPERTY(AntialiasingConfig::Mode antialiasingMode READ getAntialiasingMode WRITE setAntialiasingMode NOTIFY settingsChanged)
     Q_PROPERTY(float viewportResolutionScale READ getViewportResolutionScale WRITE setViewportResolutionScale NOTIFY settingsChanged)
 
 public:
@@ -36,6 +45,21 @@ public:
 
     static RenderScriptingInterface* getInstance();
 
+    /*@jsdoc
+     * <p>The rendering method is specified by the following values:</p>
+     * <table>
+     *   <thead>
+     *     <tr><th>Value</th><th>Name</th><th>Description</th>
+     *   </thead>
+     *   <tbody>
+     *     <tr><td><code>0</code></td><td>DEFERRED</td><td>More complex rendering pipeline where lighting is applied to the 
+     *       scene as a whole after all objects have been rendered.</td></tr>
+     *     <tr><td><code>1</code></td><td>FORWARD</td><td>Simpler rendering pipeline where each object in the scene, in turn, 
+     *       is rendered and has lighting applied.</td></tr>
+     *   </tbody>
+     * </table>
+     * @typedef {number} Render.RenderMethod
+     */
     // RenderMethod enum type
     enum class RenderMethod {
         DEFERRED = render::Args::RenderMethod::DEFERRED,
@@ -51,96 +75,115 @@ public:
     void loadSettings();
 
 public slots:
-    /**jsdoc
-     * Get a config for a job by name
+    /*@jsdoc
+     * Gets the configuration for a rendering job by name.
+     * <p><strong>Warning:</strong> For internal, debugging purposes. Subject to change.</p>
      * @function Render.getConfig
-     * @param {string} name - Can be:
-     *     - <job_name>: Search for the first job named job_name traversing the the sub graph of task and jobs (from this task as root)
-     *     - <parent_name>.[<sub_parent_names>.]<job_name>:  Allows you to first look for the parent_name job (from this task as root) and then search from there for the
-     *    optional sub_parent_names and finally from there looking for the job_name (assuming every job in the path is found)
-     * @returns {object} The sub job config.
+     * @param {string} name - The name of the rendering job.
+     * @returns {object} The configuration for the rendering job.
      */
     QObject* getConfig(const QString& name) { return qApp->getRenderEngine()->getConfiguration()->getConfig(name); }
 
-    /**jsdoc
-     * Gets the current render method
+
+    /*@jsdoc
+     * Gets the render method being used.
      * @function Render.getRenderMethod
-     * @returns {number} <code>"DEFERRED"</code> or <code>"FORWARD"</code>
+     * @returns {Render.RenderMethod} The render method being used.
+     * @example <caption>Report the current render method.</caption>
+     * var renderMethod = Render.getRenderMethod();
+     * print("Current render method: " + Render.getRenderMethodNames()[renderMethod]);
      */
     RenderMethod getRenderMethod() const;
 
-    /**jsdoc
-     * Sets the current render method
+    /*@jsdoc
+     * Sets the render method to use.
      * @function Render.setRenderMethod
-     * @param {number} renderMethod - <code>"DEFERRED"</code> or <code>"FORWARD"</code>
+     * @param {Render.RenderMethod} renderMethod - The render method to use.
      */
     void setRenderMethod(RenderMethod renderMethod);
 
-    /**jsdoc
-    * Gets the possible enum names of the RenderMethod type
-    * @function Render.getRenderMethodNames
-    * @returns [string] [ <code>"DEFERRED"</code>, <code>"FORWARD"</code> ]
-    */
+    /*@jsdoc
+     * Gets the names of the possible render methods, per {@link Render.RenderMethod}.
+     * @function Render.getRenderMethodNames
+     * @returns {string[]} The names of the possible render methods.
+     * @example <caption>Report the names of the possible render methods.</caption>
+     * var renderMethods = Render.getRenderMethodNames();
+     * print("Render methods:");
+     * for (var i = 0; i < renderMethods.length; i++) {
+     *     print("- " + renderMethods[i]);
+     * }
+     */
     QStringList getRenderMethodNames() const;
 
 
-    /**jsdoc
-     * Whether or not shadows are enabled
+    /*@jsdoc
+     * Gets whether or not shadows are enabled.
      * @function Render.getShadowsEnabled
-     * @returns {bool} <code>true</code> if shadows are enabled, otherwise <code>false</code>
+     * @returns {boolean} <code>true</code> if shadows are enabled, <code>false</code> if they're disabled.
      */
     bool getShadowsEnabled() const;
 
-    /**jsdoc
-     * Enables or disables shadows
+    /*@jsdoc
+     * Sets whether or not shadows are enabled.
      * @function Render.setShadowsEnabled
-     * @param {bool} enabled - <code>true</code> to enable shadows, <code>false</code> to disable them
+     * @param {boolean} enabled - <code>true</code> to enable shadows, <code>false</code> to disable.
      */
     void setShadowsEnabled(bool enabled);
 
-    /**jsdoc
-     * Whether or not ambient occlusion is enabled
+    /*@jsdoc
+     * Gets whether or not ambient occlusion is enabled.
      * @function Render.getAmbientOcclusionEnabled
-     * @returns {bool} <code>true</code> if ambient occlusion is enabled, otherwise <code>false</code>
+     * @returns {boolean} <code>true</code> if ambient occlusion is enabled, <code>false</code> if it's disabled.
      */
     bool getAmbientOcclusionEnabled() const;
 
-    /**jsdoc
-     * Enables or disables ambient occlusion
+    /*@jsdoc
+     * Sets whether or not ambient occlusion is enabled.
      * @function Render.setAmbientOcclusionEnabled
-     * @param {bool} enabled - <code>true</code> to enable ambient occlusion, <code>false</code> to disable it
+     * @param {boolean} enabled - <code>true</code> to enable ambient occlusion, <code>false</code> to disable.
      */
     void setAmbientOcclusionEnabled(bool enabled);
 
-    /**jsdoc
-     * Whether or not anti-aliasing is enabled
-     * @function Render.getAntialiasingEnabled
-     * @returns {bool} <code>true</code> if anti-aliasing is enabled, otherwise <code>false</code>
+    /*@jsdoc
+     * Gets the active anti-aliasing mode.
+     * @function Render.getAntialiasingMode
+     * @returns {integer} the active anti-aliasing mode.
      */
-    bool getAntialiasingEnabled() const;
+    AntialiasingConfig::Mode getAntialiasingMode() const;
 
-    /**jsdoc
-     * Enables or disables anti-aliasing
-     * @function Render.setAntialiasingEnabled
-     * @param {bool} enabled - <code>true</code> to enable anti-aliasing, <code>false</code> to disable it
+    /*@jsdoc
+     * Sets the active anti-aliasing mode.
+     * @function Render.setAntialiasingMode
+     * @param {integer} the active anti-aliasing mode.
      */
-    void setAntialiasingEnabled(bool enabled);
+    void setAntialiasingMode(AntialiasingConfig::Mode mode);
 
-    /**jsdoc
-     * Gets the current viewport resolution scale
+    /*@jsdoc
+     * Gets the view port resolution scale.
      * @function Render.getViewportResolutionScale
-     * @returns {number} 
+     * @returns {number} The view port resolution scale, <code>&gt; 0.0</code>.
      */
     float getViewportResolutionScale() const;
 
-    /**jsdoc
-     * Sets the current viewport resolution scale
+    /*@jsdoc
+     * Sets the view port resolution scale.
      * @function Render.setViewportResolutionScale
-     * @param {number} resolutionScale - between epsilon and 1.0
+     * @param {number} resolutionScale - The view port resolution scale to set, <code>&gt; 0.0</code>.
      */
     void setViewportResolutionScale(float resolutionScale);
 
 signals:
+    
+    /*@jsdoc
+     * Triggered when one of the <code>Render</code> API's properties changes.
+     * @function Render.settingsChanged
+     * @returns {Signal}
+     * @example <caption>Report when a render setting changes.</caption>
+     * Render.settingsChanged.connect(function () {
+     *     print("Render setting changed");
+     * });
+     * // Toggle Developer > Render > Shadows or similar to trigger.
+     */
     void settingsChanged();
 
 private:
@@ -151,21 +194,22 @@ private:
     int  _renderMethod{ RENDER_FORWARD ? render::Args::RenderMethod::FORWARD : render::Args::RenderMethod::DEFERRED };
     bool _shadowsEnabled{ true };
     bool _ambientOcclusionEnabled{ false };
-    bool _antialiasingEnabled{ true };
+    AntialiasingConfig::Mode _antialiasingMode{ AntialiasingConfig::Mode::TAA };
     float _viewportResolutionScale{ 1.0f };
 
     // Actual settings saved on disk
     Setting::Handle<int> _renderMethodSetting { "renderMethod", RENDER_FORWARD ? render::Args::RenderMethod::FORWARD : render::Args::RenderMethod::DEFERRED };
     Setting::Handle<bool> _shadowsEnabledSetting { "shadowsEnabled", true };
     Setting::Handle<bool> _ambientOcclusionEnabledSetting { "ambientOcclusionEnabled", false };
-    Setting::Handle<bool> _antialiasingEnabledSetting { "antialiasingEnabled", true };
+    //Setting::Handle<AntialiasingConfig::Mode> _antialiasingModeSetting { "antialiasingMode", AntialiasingConfig::Mode::TAA };
+    Setting::Handle<int> _antialiasingModeSetting { "antialiasingMode", AntialiasingConfig::Mode::TAA };
     Setting::Handle<float> _viewportResolutionScaleSetting { "viewportResolutionScale", 1.0f };
 
     // Force assign both setting AND runtime value to the parameter value
     void forceRenderMethod(RenderMethod renderMethod);
     void forceShadowsEnabled(bool enabled);
     void forceAmbientOcclusionEnabled(bool enabled);
-    void forceAntialiasingEnabled(bool enabled);
+    void forceAntialiasingMode(AntialiasingConfig::Mode mode);
     void forceViewportResolutionScale(float scale);
 
     static std::once_flag registry_flag;

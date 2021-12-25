@@ -32,7 +32,7 @@ UNIFORM_BUFFER(0, hudBuffer) {
 OUTPUT(RENDER_UTILS_ATTR_TEXCOORD01, vec4, _texCoord01);
 
 void main() {
-  _texCoord01.xy = inTexCoord0.st;
+  _texCoord01 = vec4(inTexCoord0.st, 0.0, 0.0);
 
   // standard transform
   TransformCamera cam = getTransformCamera();

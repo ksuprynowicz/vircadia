@@ -31,7 +31,7 @@ public:
 
             void render(RenderArgs* args);
             render::Item::Bound& editBound() { return _bound; }
-            const render::Item::Bound& getBound() { return _bound; }
+            const render::Item::Bound& getBound(RenderArgs* args) { return _bound; }
             render::ItemKey getKey() const { return _key; }
 
             void setVisible(bool visible);
@@ -101,6 +101,8 @@ public:
     ParabolaPointer(const QVariant& rayProps, const RenderStateMap& renderStates, const DefaultRenderStateMap& defaultRenderStates, bool hover, const PointerTriggers& triggers,
         bool faceAvatar, bool followNormal, float followNormalStrength, bool centerEndY, bool lockEnd, bool distanceScaleEnd, bool scaleWithAvatar, bool enabled);
 
+    PickQuery::PickType getType() const override;
+
     QVariantMap toVariantMap() const override;
 
     static std::shared_ptr<StartEndRenderState> buildRenderState(const QVariantMap& propMap);
@@ -126,7 +128,7 @@ private:
 
 namespace render {
     template <> const ItemKey payloadGetKey(const ParabolaPointer::RenderState::ParabolaRenderItem::Pointer& payload);
-    template <> const Item::Bound payloadGetBound(const ParabolaPointer::RenderState::ParabolaRenderItem::Pointer& payload);
+    template <> const Item::Bound payloadGetBound(const ParabolaPointer::RenderState::ParabolaRenderItem::Pointer& payload, RenderArgs* args);
     template <> void payloadRender(const ParabolaPointer::RenderState::ParabolaRenderItem::Pointer& payload, RenderArgs* args);
     template <> const ShapeKey shapeGetShapeKey(const ParabolaPointer::RenderState::ParabolaRenderItem::Pointer& payload);
 }

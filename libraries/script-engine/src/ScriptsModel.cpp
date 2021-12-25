@@ -16,6 +16,7 @@
 #include <QDirIterator>
 
 #include <NetworkAccessManager.h>
+#include <NetworkingConstants.h>
 #include <PathUtils.h>
 
 #include "ScriptEngine.h"
@@ -78,13 +79,16 @@ TreeNodeBase* ScriptsModel::getTreeNodeFromIndex(const QModelIndex& index) const
 }
 
 QModelIndex ScriptsModel::index(int row, int column, const QModelIndex& parent) const {
-    if (row < 0 || column < 0) {
+    if (row < 0 || row >= rowCount(parent) || column < 0  || column >= columnCount(parent)) {
         return QModelIndex();
     }
     return createIndex(row, column, getFolderNodes(static_cast<TreeNodeFolder*>(getTreeNodeFromIndex(parent))).at(row));
 }
 
 QModelIndex ScriptsModel::parent(const QModelIndex& child) const {
+    if (!child.isValid()) {
+        return QModelIndex();
+    }
     TreeNodeFolder* parent = (static_cast<TreeNodeBase*>(child.internalPointer()))->getParent();
     if (!parent) {
         return QModelIndex();
@@ -188,7 +192,7 @@ void ScriptsModel::requestDefaultFiles(QString marker) {
             QNetworkAccessManager& networkAccessManager = NetworkAccessManager::getInstance();
             QNetworkRequest request(url);
             request.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
-            request.setHeader(QNetworkRequest::UserAgentHeader, HIGH_FIDELITY_USER_AGENT);
+            request.setHeader(QNetworkRequest::UserAgentHeader, NetworkingConstants::VIRCADIA_USER_AGENT);
             QNetworkReply* reply = networkAccessManager.get(request);
             connect(reply, SIGNAL(finished()), SLOT(downloadFinished()));
         }

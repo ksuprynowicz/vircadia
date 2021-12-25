@@ -6,9 +6,8 @@ import controlsUit 1.0
 
 WebView {
     id: webview
-    url: "https://highfidelity.com/"
+    url: "https://vircadia.com/"
     profile: FileTypeProfile;
-
     property var parentRoot: null
 
     // Create a global EventBridge object for raiseAndLowerKeyboard.
@@ -28,16 +27,6 @@ WebView {
     }
 
     userScripts: [ createGlobalEventBridge, raiseAndLowerKeyboard ]
-
-    onFeaturePermissionRequested: {
-        if (feature == 2) { // QWebEnginePage::MediaAudioCapture
-            grantFeaturePermission(securityOrigin, feature, true);
-        } else {
-            permissionsBar.securityOrigin = securityOrigin;
-            permissionsBar.feature = feature;
-            parentRoot.showPermissionsBar();
-        }
-    }
 
     onLoadingChanged: {
         if (loadRequest.status === WebEngineView.LoadSucceededStatus) {

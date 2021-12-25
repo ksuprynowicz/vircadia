@@ -40,14 +40,17 @@ public:
     virtual int getSteamVRBuildID() = 0;
 };
 
-/**jsdoc
+/*@jsdoc
+ * The <code>Steam</code> API provides facilities for working with the Steam version of Interface.
+ *
  * @namespace Steam
  *
  * @hifi-interface
  * @hifi-client-entity
  * @hifi-avatar
  *
- * @property {boolean} running - <em>Read-only.</em>
+ * @property {boolean} running - <code>true</code> if Interface is running under Steam, <code>false</code> if it isn't. 
+ *     <em>Read-only.</em>
  */
 
 class SteamScriptingInterface : public QObject {
@@ -60,14 +63,23 @@ public:
 
 public slots:
 
-    /**jsdoc
+    /*@jsdoc
+     * Gets whether Interface is running under Steam.
      * @function Steam.isRunning
-     * @returns {boolean}
+     * @returns {boolean} <code>true</code> if Interface is running under Steam, <code>false</code> if it isn't. 
      */
     bool isRunning() const { return _plugin && _plugin->isRunning(); }
 
-    /**jsdoc
+    /*@jsdoc
+     * Opens Steam's "Choose Friends to invite" dialog if Interface is running under Steam.
      * @function Steam.openInviteOverlay
+     * @example <caption>Invite Steam friends to join you in Vircadia.</caption>
+     * if (Steam.running) {
+     *     print("Invite Steam friends to joint you...");
+     *     Steam.openInviteOverlay();
+     * } else {
+     *     print("Interface isn't running under Steam.");
+     * }
      */
     void openInviteOverlay() const { if (_plugin) { _plugin->openInviteOverlay(); } }
 

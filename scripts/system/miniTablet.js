@@ -8,7 +8,8 @@
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
 //
 
-/* global getTabletWidthFromSettings, TRIGGER_OFF_VALUE */
+/* global getTabletWidthFromSettings, handsAreTracked, TRIGGER_OFF_VALUE, Controller, Script, Camera, Tablet, MyAvatar,
+   Quat, SoundCache, HMD, Overlays, Vec3, Uuid, Messages */
 
 (function () {
 
@@ -53,7 +54,7 @@
     function handJointName(hand) {
         var jointName;
         if (hand === LEFT_HAND) {
-            if (Camera.mode === "first person") {
+            if (Camera.mode === "first person" || Camera.mode === "first person look at") {
                 jointName = "_CONTROLLER_LEFTHAND";
             } else if (Camera.mode === "third person") {
                 jointName = "_CAMERA_RELATIVE_CONTROLLER_LEFTHAND";
@@ -61,7 +62,7 @@
                 jointName = "LeftHand";
             }
         } else {
-            if (Camera.mode === "first person") {
+            if (Camera.mode === "first person" || Camera.mode === "first person look at") {
                 jointName = "_CONTROLLER_RIGHTHAND";
             } else if (Camera.mode === "third person") {
                 jointName = "_CAMERA_RELATIVE_CONTROLLER_RIGHTHAND";
@@ -79,7 +80,6 @@
     function otherHand(hand) {
         return hand === LEFT_HAND ? RIGHT_HAND : LEFT_HAND;
     }
-
 
     UI = function () {
 
@@ -114,6 +114,7 @@
             uiHand = LEFT_HAND,
             miniUIOverlay = null,
             MINI_UI_HTML = Script.resolvePath("./html/miniTablet.html"),
+            MINI_HAND_UI_HTML = Script.resolvePath("./html/miniHandsTablet.html"),
             MINI_UI_DIMENSIONS = { x: 0.059, y: 0.0865, z: 0.001 },
             MINI_UI_WIDTH_PIXELS = 150,
             METERS_TO_INCHES = 39.3701,
@@ -291,6 +292,7 @@
                 visible: true
             });
             Overlays.editOverlay(miniUIOverlay, {
+                url: handsAreTracked() ? MINI_HAND_UI_HTML : MINI_UI_HTML,
                 localPosition: Vec3.multiply(MyAvatar.sensorToWorldScale, MINI_UI_LOCAL_POSITION),
                 localRotation: MINI_UI_LOCAL_ROTATION,
                 dimensions: Vec3.multiply(initialScale, MINI_UI_DIMENSIONS),
@@ -353,8 +355,8 @@
                 localRotation,
                 localPosition;
 
-            tabletScaleFactor = MyAvatar.sensorToWorldScale
-                * (1 + scaleFactor * (miniTargetWidth - miniInitialWidth) / miniInitialWidth);
+            tabletScaleFactor = MyAvatar.sensorToWorldScale *
+                (1 + scaleFactor * (miniTargetWidth - miniInitialWidth) / miniInitialWidth);
             dimensions = Vec3.multiply(tabletScaleFactor, MINI_DIMENSIONS);
             localRotation = Quat.mix(miniExpandLocalRotation, miniTargetLocalRotation, scaleFactor);
             localPosition =
@@ -469,11 +471,11 @@
                 solid: true,
                 grabbable: true,
                 showKeyboardFocusHighlight: false,
-                drawInFront: true,
+                drawInFront: false,
                 visible: false
             });
             miniUIOverlay = Overlays.addOverlay("web3d", {
-                url: MINI_UI_HTML,
+                url: handsAreTracked() ? MINI_HAND_UI_HTML : MINI_UI_HTML,
                 parentID: miniOverlay,
                 localPosition: Vec3.multiply(MyAvatar.sensorToWorldScale, MINI_UI_LOCAL_POSITION),
                 localRotation: MINI_UI_LOCAL_ROTATION,
@@ -482,7 +484,7 @@
                 alpha: 0, // Hide overlay while its content is being created.
                 grabbable: false,
                 showKeyboardFocusHighlight: false,
-                drawInFront: true,
+                drawInFront: false,
                 visible: false
             });
 
@@ -561,7 +563,7 @@
 
             // Tablet targets.
             isGoto = false,
-            TABLET_ADDRESS_DIALOG = "hifi/tablet/TabletAddressDialog.qml",
+            TABLET_EXPLORE_APP_UI = Script.resolvePath("../communityScripts/explore/explore.html"),
 
             // Trigger values.
             leftTriggerOn = 0,
@@ -642,8 +644,8 @@
             // is grabbing something) or the other hand's trigger is pressed unless it is pointing at the mini tablet. Allow 
             // the triggers to be pressed briefly to allow for the grabbing process.
             if (show) {
-                isLeftTriggerOff = Controller.getValue(Controller.Standard.LT) < TRIGGER_OFF_VALUE
-                    && Controller.getValue(Controller.Standard.LeftGrip) < TRIGGER_OFF_VALUE;
+                isLeftTriggerOff = Controller.getValue(Controller.Standard.LT) < TRIGGER_OFF_VALUE &&
+                    Controller.getValue(Controller.Standard.LeftGrip) < TRIGGER_OFF_VALUE;
                 if (!isLeftTriggerOff) {
                     if (leftTriggerOn === 0) {
                         leftTriggerOn = Date.now();
@@ -653,8 +655,8 @@
                 } else {
                     leftTriggerOn = 0;
                 }
-                isRightTriggerOff = Controller.getValue(Controller.Standard.RT) < TRIGGER_OFF_VALUE
-                    && Controller.getValue(Controller.Standard.RightGrip) < TRIGGER_OFF_VALUE;
+                isRightTriggerOff = Controller.getValue(Controller.Standard.RT) < TRIGGER_OFF_VALUE &&
+                    Controller.getValue(Controller.Standard.RightGrip) < TRIGGER_OFF_VALUE;
                 if (!isRightTriggerOff) {
                     if (rightTriggerOn === 0) {
                         rightTriggerOn = Date.now();
@@ -665,8 +667,8 @@
                     rightTriggerOn = 0;
                 }
 
-                show = (hand === LEFT_HAND ? wasLeftTriggerOff : wasRightTriggerOff)
-                    && ((hand === LEFT_HAND ? wasRightTriggerOff : wasLeftTriggerOff) || ui.isLaserPointingAt());
+                show = (hand === LEFT_HAND ? wasLeftTriggerOff : wasRightTriggerOff) &&
+                    ((hand === LEFT_HAND ? wasRightTriggerOff : wasLeftTriggerOff) || ui.isLaserPointingAt());
             }
 
             // Should show mini tablet if it would be oriented toward the camera.
@@ -691,10 +693,10 @@
                 normalDot = Vec3.dot(normalHandVector, miniToCameraDirection);
                 medialAngle = Math.atan2(medialDot, normalDot);
                 lateralAngle = Math.atan2(lateralDot, normalDot);
-                show = -MAX_MEDIAL_WRIST_CAMERA_ANGLE_RAD <= medialAngle
-                    && medialAngle <= MAX_MEDIAL_FINGER_CAMERA_ANGLE_RAD
-                    && -MAX_LATERAL_THUMB_CAMERA_ANGLE_RAD <= lateralAngle
-                    && lateralAngle <= MAX_LATERAL_PINKY_CAMERA_ANGLE_RAD;
+                show = -MAX_MEDIAL_WRIST_CAMERA_ANGLE_RAD <= medialAngle &&
+                    medialAngle <= MAX_MEDIAL_FINGER_CAMERA_ANGLE_RAD &&
+                    -MAX_LATERAL_THUMB_CAMERA_ANGLE_RAD <= lateralAngle &&
+                    lateralAngle <= MAX_LATERAL_PINKY_CAMERA_ANGLE_RAD;
 
                 // Camera looking at mini tablet?
                 cameraToMini = -Vec3.dot(miniToCameraDirection, Quat.getForward(Camera.orientation));
@@ -905,7 +907,7 @@
             var miniTabletProperties;
 
             if (isGoto) {
-                tablet.loadQMLSource(TABLET_ADDRESS_DIALOG);
+                tablet.gotoWebScreen(TABLET_EXPLORE_APP_UI);
             } else {
                 tablet.gotoHomeScreen();
             }
@@ -972,8 +974,8 @@
 
         function setState(state, data) {
             if (state !== miniState) {
-                debug("State transition from " + STATE_STRINGS[miniState] + " to " + STATE_STRINGS[state]
-                    + ( data ? " " + JSON.stringify(data) : ""));
+                debug("State transition from " + STATE_STRINGS[miniState] + " to " + STATE_STRINGS[state] +
+                      ( data ? " " + JSON.stringify(data) : ""));
                 if (STATE_MACHINE[STATE_STRINGS[miniState]].exit) {
                     STATE_MACHINE[STATE_STRINGS[miniState]].exit(data);
                 }
@@ -1061,8 +1063,8 @@
                 return;
         }
 
-        if (miniState.getState() === miniState.MINI_DISABLED
-                || (message.grabbedEntity !== HMD.tabletID && message.grabbedEntity !== ui.getMiniTabletID())) {
+        if (miniState.getState() === miniState.MINI_DISABLED ||
+            (message.grabbedEntity !== HMD.tabletID && message.grabbedEntity !== ui.getMiniTabletID())) {
             return;
         }
 

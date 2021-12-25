@@ -37,7 +37,7 @@ void DownloadInfoResultFromScriptValue(const QScriptValue& object, DownloadInfoR
 class AccountServicesScriptingInterface : public QObject {
     Q_OBJECT
 
-    /**jsdoc
+    /*@jsdoc
      * The <code>AccountServices</code> API provides functions that give information on user connectivity, visibility, and 
      * asset download progress.
      * 
@@ -46,17 +46,100 @@ class AccountServicesScriptingInterface : public QObject {
      * @hifi-avatar
      *
      * @namespace AccountServices
+     *
      * @property {string} username - The user name of the user logged in. If there is no user logged in, it is
      *     <code>"Unknown user"</code>. <em>Read-only.</em>
      * @property {boolean} loggedIn - <code>true</code> if the user is logged in, otherwise <code>false</code>. 
      *     <em>Read-only.</em>
-     * @property {string} findableBy - The user's visibility to other users:<br />
-     *     <code>"none"</code> - user appears offline.<br />
-     *     <code>"friends"</code> - user is visible only to friends.<br />
-     *     <code>"connections"</code> - user is visible to friends and connections.<br />
-     *     <code>"all"</code> - user is visible to everyone.
-     * @property {string} metaverseServerURL - The metaverse server that the user is authenticated against when logged in 
+     * @property {string} findableBy - The user's visibility to other users:
+     *     <ul>
+     *         <li><code>"none"</code> &mdash; user appears offline.</li>
+     *         <li><code>"friends"</code> &mdash; user is visible only to friends.</li>
+     *         <li><code>"connections"</code> &mdash; user is visible to friends and connections.</li>
+     *         <li><code>"all"</code> &mdash; user is visible to everyone.</li>
+     *     </ul>
+     * @property {string} metaverseServerURL - The metaverse server that the user is authenticated against when logged in
      *     &mdash; typically <code>"https://metaverse.highfidelity.com"</code>. <em>Read-only.</em>
+     */
+
+    /*@jsdoc
+     * The <code>Account</code> API provides functions that give information on user connectivity, visibility, and asset 
+     * download progress.
+     *
+     * @deprecated This API is the same as the {@link AccountServices} API and will be removed.
+     * 
+     * @hifi-interface
+     * @hifi-client-entity
+     * @hifi-avatar
+     *
+     * @namespace Account
+     *
+     * @property {string} username - The user name of the user logged in. If there is no user logged in, it is
+     *     <code>"Unknown user"</code>. <em>Read-only.</em>
+     * @property {boolean} loggedIn - <code>true</code> if the user is logged in, otherwise <code>false</code>.
+     *     <em>Read-only.</em>
+     * @property {string} findableBy - The user's visibility to other users:
+     *     <ul>
+     *         <li><code>"none"</code> &mdash; user appears offline.</li>
+     *         <li><code>"friends"</code> &mdash; user is visible only to friends.</li>
+     *         <li><code>"connections"</code> &mdash; user is visible to friends and connections.</li>
+     *         <li><code>"all"</code> &mdash; user is visible to everyone.</li>
+     *     </ul>
+     * @property {string} metaverseServerURL - The metaverse server that the user is authenticated against when logged in
+     *     &mdash; typically <code>"https://metaverse.highfidelity.com"</code>. <em>Read-only.</em>
+     *
+     * @borrows AccountServices.getDownloadInfo as getDownloadInfo
+     * @borrows AccountServices.updateDownloadInfo as updateDownloadInfo
+     * @borrows AccountServices.isLoggedIn as isLoggedIn
+     * @borrows AccountServices.checkAndSignalForAccessToken as checkAndSignalForAccessToken
+     * @borrows AccountServices.logOut as logOut
+     *
+     * @borrows AccountServices.connected as connected
+     * @borrows AccountServices.disconnected as disconnected
+     * @borrows AccountServices.myUsernameChanged as myUsernameChanged
+     * @borrows AccountServices.downloadInfoChanged as downloadInfoChanged
+     * @borrows AccountServices.findableByChanged as findableByChanged
+     * @borrows AccountServices.loggedInChanged as loggedInChanged
+     */
+
+    /*@jsdoc
+     * The <code>GlobalServices</code> API provides functions that give information on user connectivity, visibility, and asset 
+     * download progress.
+     *
+     * @deprecated This API is the same as the {@link AccountServices} API and will be removed.
+     * 
+     * @hifi-interface
+     * @hifi-client-entity
+     * @hifi-avatar
+     *
+     * @namespace GlobalServices
+     *
+     * @property {string} username - The user name of the user logged in. If there is no user logged in, it is
+     *     <code>"Unknown user"</code>. <em>Read-only.</em>
+     * @property {boolean} loggedIn - <code>true</code> if the user is logged in, otherwise <code>false</code>.
+     *     <em>Read-only.</em>
+     * @property {string} findableBy - The user's visibility to other users:
+     *     <ul>
+     *         <li><code>"none"</code> &mdash; user appears offline.</li>
+     *         <li><code>"friends"</code> &mdash; user is visible only to friends.</li>
+     *         <li><code>"connections"</code> &mdash; user is visible to friends and connections.</li>
+     *         <li><code>"all"</code> &mdash; user is visible to everyone.</li>
+     *     </ul>
+     * @property {string} metaverseServerURL - The metaverse server that the user is authenticated against when logged in
+     *     &mdash; typically <code>"https://metaverse.highfidelity.com"</code>. <em>Read-only.</em>
+     *
+     * @borrows AccountServices.getDownloadInfo as getDownloadInfo
+     * @borrows AccountServices.updateDownloadInfo as updateDownloadInfo
+     * @borrows AccountServices.isLoggedIn as isLoggedIn
+     * @borrows AccountServices.checkAndSignalForAccessToken as checkAndSignalForAccessToken
+     * @borrows AccountServices.logOut as logOut
+     *
+     * @borrows AccountServices.connected as connected
+     * @borrows AccountServices.disconnected as disconnected
+     * @borrows AccountServices.myUsernameChanged as myUsernameChanged
+     * @borrows AccountServices.downloadInfoChanged as downloadInfoChanged
+     * @borrows AccountServices.findableByChanged as findableByChanged
+     * @borrows AccountServices.loggedInChanged as loggedInChanged
      */
 
     Q_PROPERTY(QString username READ getUsername NOTIFY myUsernameChanged)
@@ -73,21 +156,21 @@ public:
     
 public slots:
 
-    /**jsdoc
+    /*@jsdoc
      * Gets information on the download progress of assets in the domain.
      * @function AccountServices.getDownloadInfo
      * @returns {AccountServices.DownloadInfoResult} Information on the download progress of assets.
      */
     DownloadInfoResult getDownloadInfo();
 
-    /**jsdoc
+    /*@jsdoc
      * Triggers a {@link AccountServices.downloadInfoChanged|downloadInfoChanged} signal with information on the current 
      * download progress of the assets in the domain.
      * @function AccountServices.updateDownloadInfo
      */
     void updateDownloadInfo();
 
-    /**jsdoc
+    /*@jsdoc
      * Checks whether the user is logged in.
      * @function AccountServices.isLoggedIn
      * @returns {boolean} <code>true</code> if the user is logged in, <code>false</code> if not.
@@ -97,14 +180,14 @@ public slots:
      */
     bool isLoggedIn();
 
-    /**jsdoc
+    /*@jsdoc
      * The function returns the login status of the user and prompts the user to log in (with a login dialog) if they're not already logged in.
      * @function AccountServices.checkAndSignalForAccessToken
      * @returns {boolean} <code>true</code> if the user is logged in, <code>false</code> if not.
      */
     bool checkAndSignalForAccessToken();
 
-    /**jsdoc
+    /*@jsdoc
      * Logs the user out.
      * @function AccountServices.logOut
      */
@@ -122,14 +205,14 @@ private slots:
 
 signals:
 
-    /**jsdoc
+    /*@jsdoc
      * Not currently used.
      * @function AccountServices.connected
      * @returns {Signal}
      */
     void connected();
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the user logs out.
      * @function AccountServices.disconnected
      * @param {string} reason - Has the value, <code>"logout"</code>.
@@ -137,7 +220,7 @@ signals:
      */
     void disconnected(const QString& reason);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the username logged in with changes, i.e., when the user logs in or out.
      * @function AccountServices.myUsernameChanged
      * @param {string} username - The user name of the user logged in. If there is no user logged in, it is <code>""</code>.
@@ -149,7 +232,7 @@ signals:
      */
     void myUsernameChanged(const QString& username);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the download progress of the assets in the domain changes.
      * @function AccountServices.downloadInfoChanged
      * @param {AccountServices.DownloadInfoResult} downloadInfo - Information on the download progress of assets.
@@ -157,14 +240,16 @@ signals:
      */
     void downloadInfoChanged(DownloadInfoResult info);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the user's visibility to others changes.
      * @function AccountServices.findableByChanged
-     * @param {string} findableBy - The user's visibility to other people:<br />
-     *     <code>"none"</code> - user appears offline.<br />
-     *     <code>"friends"</code> - user is visible only to friends.<br />
-     *     <code>"connections"</code> - user is visible to friends and connections.<br />
-     *     <code>"all"</code> - user is visible to everyone.
+     * @param {string} findableBy - The user's visibility to other people:
+     *     <ul>
+     *         <li><code>"none"</code> &mdash; user appears offline.</li>
+     *         <li><code>"friends"</code> &mdash; user is visible only to friends.</li>
+     *         <li><code>"connections"</code> &mdash; user is visible to friends and connections.</li>
+     *         <li><code>"all"</code> &mdash; user is visible to everyone.</li>
+     *     </ul>
      * @returns {Signal}
      * @example <caption>Report when your visiblity changes.</caption>
      * AccountServices.findableByChanged.connect(function (findableBy) {
@@ -183,7 +268,7 @@ signals:
      */
     void findableByChanged(const QString& discoverabilityMode);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the login status of the user changes.
      * @function AccountServices.loggedInChanged
      * @param {boolean} loggedIn - <code>true</code> if the user is logged in, <code>false</code> if not.

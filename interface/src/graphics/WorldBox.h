@@ -19,8 +19,6 @@
 #include <GeometryCache.h>
 #include "Menu.h"
 
-
-
 class WorldBoxRenderData {
 public:
     typedef render::Payload<WorldBoxRenderData> Payload;
@@ -29,14 +27,12 @@ public:
     int _val = 0;
     static render::ItemID _item; // unique WorldBoxRenderData
 
-
-
     static void renderWorldBox(RenderArgs* args, gpu::Batch& batch);
 };
 
 namespace render {
     template <> const ItemKey payloadGetKey(const WorldBoxRenderData::Pointer& stuff);
-    template <> const Item::Bound payloadGetBound(const WorldBoxRenderData::Pointer& stuff);
+    template <> const Item::Bound payloadGetBound(const WorldBoxRenderData::Pointer& stuff, RenderArgs* args);
     template <> void payloadRender(const WorldBoxRenderData::Pointer& stuff, RenderArgs* args);
 }
 

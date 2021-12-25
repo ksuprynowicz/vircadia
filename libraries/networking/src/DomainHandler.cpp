@@ -4,6 +4,7 @@
 //
 //  Created by Stephen Birarda on 2/18/2014.
 //  Copyright 2014 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -24,7 +25,8 @@
 
 #include "AddressManager.h"
 #include "Assignment.h"
-#include "HifiSockAddr.h"
+#include "DomainAccountManager.h"
+#include "SockAddr.h"
 #include "NodeList.h"
 #include "udt/Packet.h"
 #include "udt/PacketHeaders.h"
@@ -35,7 +37,7 @@
 
 DomainHandler::DomainHandler(QObject* parent) :
     QObject(parent),
-    _sockAddr(HifiSockAddr(QHostAddress::Null, DEFAULT_DOMAIN_SERVER_PORT)),
+    _sockAddr(SockAddr(SocketType::UDP, QHostAddress::Null, DEFAULT_DOMAIN_SERVER_PORT)),
     _icePeer(this),
     _settingsTimer(this),
     _apiRefreshTimer(this)
@@ -124,12 +126,14 @@ void DomainHandler::hardReset(QString reason) {
     emit resetting();
 
     softReset(reason);
+    _haveAskedConnectWithoutAvatarEntities = false;
+    _canConnectWithoutAvatarEntities = false;
     _isInErrorState = false;
     emit redirectErrorStateChanged(_isInErrorState);
 
     qCDebug(networking) << "Hard reset in NodeList DomainHandler.";
     _pendingDomainID = QUuid();
-    _iceServerSockAddr = HifiSockAddr();
+    _iceServerSockAddr = SockAddr();
     _sockAddr.clear();
     _domainURL = QUrl();
 
@@ -144,7 +148,8 @@ void DomainHandler::hardReset(QString reason) {
 bool DomainHandler::isHardRefusal(int reasonCode) {
     return (reasonCode == (int)ConnectionRefusedReason::ProtocolMismatch ||
             reasonCode == (int)ConnectionRefusedReason::TooManyUsers ||
-            reasonCode == (int)ConnectionRefusedReason::NotAuthorized ||
+            reasonCode == (int)ConnectionRefusedReason::NotAuthorizedMetaverse ||
+            reasonCode == (int)ConnectionRefusedReason::NotAuthorizedDomain ||
             reasonCode == (int)ConnectionRefusedReason::TimedOut);
 }
 
@@ -165,7 +170,7 @@ void DomainHandler::setErrorDomainURL(const QUrl& url) {
     return;
 }
 
-void DomainHandler::setSockAddr(const HifiSockAddr& sockAddr, const QString& hostname) {
+void DomainHandler::setSockAddr(const SockAddr& sockAddr, const QString& hostname) {
     if (_sockAddr != sockAddr) {
         // we should reset on a sockAddr change
         hardReset("Changing domain sockAddr");
@@ -179,7 +184,7 @@ void DomainHandler::setSockAddr(const HifiSockAddr& sockAddr, const QString& hos
 
     // some callers may pass a hostname, this is not to be used for lookup but for DTLS certificate verification
     _domainURL = QUrl();
-    _domainURL.setScheme(URL_SCHEME_HIFI);
+    _domainURL.setScheme(URL_SCHEME_VIRCADIA);
     _domainURL.setHost(hostname);
     _domainURL.setPort(_sockAddr.getPort());
 }
@@ -194,7 +199,7 @@ void DomainHandler::setUUID(const QUuid& uuid) {
 void DomainHandler::setURLAndID(QUrl domainURL, QUuid domainID) {
     _pendingDomainID = domainID;
 
-    if (domainURL.scheme() != URL_SCHEME_HIFI) {
+    if (domainURL.scheme() != URL_SCHEME_VIRCADIA) {
         _sockAddr.clear();
 
         // if this is a file URL we need to see if it has a ~ for us to expand
@@ -209,18 +214,23 @@ void DomainHandler::setURLAndID(QUrl domainURL, QUuid domainID) {
     }
 
     // if it's in the error state, reset and try again.
-    if ((_domainURL != domainURL || _sockAddr.getPort() != domainPort) || _isInErrorState) {
+    if (_domainURL != domainURL 
+        || (_sockAddr.getPort() != domainPort && domainURL.scheme() == URL_SCHEME_VIRCADIA)
+        || isServerless() // For reloading content in serverless domain.
+        || _isInErrorState) {
         // re-set the domain info so that auth information is reloaded
         hardReset("Changing domain URL");
 
         QString previousHost = _domainURL.host();
         _domainURL = domainURL;
 
+        _hasCheckedForDomainAccessToken = false;
+
         if (previousHost != domainURL.host()) {
             qCDebug(networking) << "Updated domain hostname to" << domainURL.host();
 
             if (!domainURL.host().isEmpty()) {
-                if (domainURL.scheme() == URL_SCHEME_HIFI) {
+                if (domainURL.scheme() == URL_SCHEME_VIRCADIA) {
                     // re-set the sock addr to null and fire off a lookup of the IP address for this domain-server's hostname
                     qCDebug(networking, "Looking up DS hostname %s.", domainURL.host().toLocal8Bit().constData());
                     QHostInfo::lookupHost(domainURL.host(), this, SLOT(completedHostnameLookup(const QHostInfo&)));
@@ -232,6 +242,8 @@ void DomainHandler::setURLAndID(QUrl domainURL, QUuid domainID) {
                 UserActivityLogger::getInstance().changedDomain(domainURL.host());
             }
         }
+
+        DependencyManager::get<DomainAccountManager>()->setDomainURL(_domainURL);
 
         emit domainURLChanged(_domainURL);
 
@@ -268,9 +280,9 @@ void DomainHandler::setIceServerHostnameAndID(const QString& iceServerHostname, 
 
         _pendingDomainID = id;
 
-        HifiSockAddr* replaceableSockAddr = &_iceServerSockAddr;
-        replaceableSockAddr->~HifiSockAddr();
-        replaceableSockAddr = new (replaceableSockAddr) HifiSockAddr(iceServerHostname, ICE_SERVER_DEFAULT_PORT);
+        SockAddr* replaceableSockAddr = &_iceServerSockAddr;
+        replaceableSockAddr->~SockAddr();
+        replaceableSockAddr = new (replaceableSockAddr) SockAddr(SocketType::UDP, iceServerHostname, ICE_SERVER_DEFAULT_PORT);
         _iceServerSockAddr.setObjectName("IceServer");
 
         auto nodeList = DependencyManager::get<NodeList>();
@@ -279,7 +291,7 @@ void DomainHandler::setIceServerHostnameAndID(const QString& iceServerHostname, 
 
         if (_iceServerSockAddr.getAddress().isNull()) {
             // connect to lookup completed for ice-server socket so we can request a heartbeat once hostname is looked up
-            connect(&_iceServerSockAddr, &HifiSockAddr::lookupCompleted, this, &DomainHandler::completedIceServerHostnameLookup);
+            connect(&_iceServerSockAddr, &SockAddr::lookupCompleted, this, &DomainHandler::completedIceServerHostnameLookup);
         } else {
             completedIceServerHostnameLookup();
         }
@@ -291,7 +303,7 @@ void DomainHandler::setIceServerHostnameAndID(const QString& iceServerHostname, 
 void DomainHandler::activateICELocalSocket() {
     DependencyManager::get<NodeList>()->flagTimeForConnectionStep(LimitedNodeList::ConnectionStep::SetDomainSocket);
     _sockAddr = _icePeer.getLocalSocket();
-    _domainURL.setScheme(URL_SCHEME_HIFI);
+    _domainURL.setScheme(URL_SCHEME_VIRCADIA);
     _domainURL.setHost(_sockAddr.getAddress().toString());
     emit domainURLChanged(_domainURL);
     emit completedSocketDiscovery();
@@ -300,7 +312,7 @@ void DomainHandler::activateICELocalSocket() {
 void DomainHandler::activateICEPublicSocket() {
     DependencyManager::get<NodeList>()->flagTimeForConnectionStep(LimitedNodeList::ConnectionStep::SetDomainSocket);
     _sockAddr = _icePeer.getPublicSocket();
-    _domainURL.setScheme(URL_SCHEME_HIFI);
+    _domainURL.setScheme(URL_SCHEME_VIRCADIA);
     _domainURL.setHost(_sockAddr.getAddress().toString());
     emit domainURLChanged(_domainURL);
     emit completedSocketDiscovery();
@@ -354,15 +366,37 @@ void DomainHandler::setIsConnected(bool isConnected) {
             _lastDomainConnectionError = -1;
             emit connectedToDomain(_domainURL);
 
-            if (_domainURL.scheme() == URL_SCHEME_HIFI && !_domainURL.host().isEmpty()) {
+            // FIXME: Reinstate the requestDomainSettings() call here in version 2021.2.0 instead of having it in 
+            // NodeList::processDomainList().
+            /*
+            if (_domainURL.scheme() == URL_SCHEME_VIRCADIA && !_domainURL.host().isEmpty()) {
                 // we've connected to new domain - time to ask it for global settings
                 requestDomainSettings();
             }
+            */
 
         } else {
             emit disconnectedFromDomain();
         }
     }
+}
+
+void DomainHandler::setCanConnectWithoutAvatarEntities(bool canConnect) {
+    _canConnectWithoutAvatarEntities = canConnect;
+    _haveAskedConnectWithoutAvatarEntities = true;
+}
+
+bool DomainHandler::canConnectWithoutAvatarEntities() {
+    if (!_canConnectWithoutAvatarEntities && !_haveAskedConnectWithoutAvatarEntities) {
+        if (_isConnected) {
+            // Already connected so don't ask. (Permission removed from user while in the domain.)
+            setCanConnectWithoutAvatarEntities(true);
+        } else {
+            // Ask whether to connect to the domain.
+            emit confirmConnectWithoutAvatarEntities();
+        }
+    }
+    return _canConnectWithoutAvatarEntities;
 }
 
 void DomainHandler::connectedToServerless(std::map<QString, QString> namedPaths) {
@@ -424,7 +458,7 @@ void DomainHandler::processSettingsPacketList(QSharedPointer<ReceivedMessage> pa
 }
 
 void DomainHandler::processICEPingReplyPacket(QSharedPointer<ReceivedMessage> message) {
-    const HifiSockAddr& senderSockAddr = message->getSenderSockAddr();
+    const SockAddr& senderSockAddr = message->getSenderSockAddr();
     qCDebug(networking_ice) << "Received reply from domain-server on" << senderSockAddr;
 
     if (getIP().isNull()) {
@@ -486,22 +520,45 @@ void DomainHandler::processICEResponsePacket(QSharedPointer<ReceivedMessage> mes
     }
 }
 
-bool DomainHandler::reasonSuggestsLogin(ConnectionRefusedReason reasonCode) {
+bool DomainHandler::reasonSuggestsMetaverseLogin(ConnectionRefusedReason reasonCode) {
     switch (reasonCode) {
-        case ConnectionRefusedReason::LoginError:
-        case ConnectionRefusedReason::NotAuthorized:
+        case ConnectionRefusedReason::LoginErrorMetaverse:
+        case ConnectionRefusedReason::NotAuthorizedMetaverse:
             return true;
 
         default:
         case ConnectionRefusedReason::Unknown:
         case ConnectionRefusedReason::ProtocolMismatch:
         case ConnectionRefusedReason::TooManyUsers:
+        case ConnectionRefusedReason::NotAuthorizedDomain:
+            return false;
+    }
+    return false;
+}
+
+bool DomainHandler::reasonSuggestsDomainLogin(ConnectionRefusedReason reasonCode) {
+    switch (reasonCode) {
+        case ConnectionRefusedReason::LoginErrorDomain:
+        case ConnectionRefusedReason::NotAuthorizedDomain:
+            return true;
+
+        default:
+        case ConnectionRefusedReason::Unknown:
+        case ConnectionRefusedReason::ProtocolMismatch:
+        case ConnectionRefusedReason::TooManyUsers:
+        case ConnectionRefusedReason::NotAuthorizedMetaverse:
             return false;
     }
     return false;
 }
 
 void DomainHandler::processDomainServerConnectionDeniedPacket(QSharedPointer<ReceivedMessage> message) {
+
+    // Ignore any residual packets from previous domain.
+    if (!message->getSenderSockAddr().getAddress().isEqual(_sockAddr.getAddress())) {
+        return;
+    }
+
     // we're hearing from this domain-server, don't need to refresh API info
     _apiRefreshTimer.stop();
 
@@ -525,7 +582,9 @@ void DomainHandler::processDomainServerConnectionDeniedPacket(QSharedPointer<Rec
 
     // output to the log so the user knows they got a denied connection request
     // and check and signal for an access token so that we can make sure they are logged in
-    qCWarning(networking) << "The domain-server denied a connection request: " << reasonMessage << " extraInfo:" << extraInfo;
+    QString sanitizedExtraInfo = extraInfo.toLower().startsWith("http") ? "" : extraInfo;  // Don't log URLs.
+    qCWarning(networking) << "The domain-server denied a connection request: " << reasonMessage 
+        << " extraInfo:" << sanitizedExtraInfo;
 
     if (!_domainConnectionRefusals.contains(reasonMessage)) {
         _domainConnectionRefusals.insert(reasonMessage);
@@ -538,11 +597,12 @@ void DomainHandler::processDomainServerConnectionDeniedPacket(QSharedPointer<Rec
 #endif
     }
 
-    auto accountManager = DependencyManager::get<AccountManager>();
 
-    // Some connection refusal reasons imply that a login is required. If so, suggest a new login
-    if (reasonSuggestsLogin(reasonCode)) {
-        qCWarning(networking) << "Make sure you are logged in.";
+    // Some connection refusal reasons imply that a login is required. If so, suggest a new login.
+    if (reasonSuggestsMetaverseLogin(reasonCode)) {
+        qCWarning(networking) << "Make sure you are logged in to the metaverse.";
+
+        auto accountManager = DependencyManager::get<AccountManager>();
 
         if (!_hasCheckedForAccessToken) {
             accountManager->checkAndSignalForAccessToken();
@@ -556,6 +616,33 @@ void DomainHandler::processDomainServerConnectionDeniedPacket(QSharedPointer<Rec
             accountManager->generateNewUserKeypair();
             _connectionDenialsSinceKeypairRegen = 0;
         }
+
+        // Server with domain login will prompt for domain login, not metaverse, so reset domain values if asked for metaverse.
+        auto domainAccountManager = DependencyManager::get<DomainAccountManager>();
+        domainAccountManager->setAuthURL(QUrl());
+        domainAccountManager->setClientID(QString());
+
+    } else if (reasonSuggestsDomainLogin(reasonCode)) {
+        qCWarning(networking) << "Make sure you are logged in to the domain.";
+
+        auto domainAccountManager = DependencyManager::get<DomainAccountManager>();
+        if (!extraInfo.isEmpty()) {
+            auto extraInfoComponents = extraInfo.split("|");
+            domainAccountManager->setAuthURL(extraInfoComponents.value(0));
+            domainAccountManager->setClientID(extraInfoComponents.value(1));
+        } else {
+            // Shouldn't occur, but just in case.
+            domainAccountManager->setAuthURL(QUrl());
+            domainAccountManager->setClientID(QString());
+        }
+
+        if (!_hasCheckedForDomainAccessToken) {
+            domainAccountManager->checkAndSignalForAccessToken();
+            _hasCheckedForDomainAccessToken = true;
+        }
+
+        // ####### TODO: regenerate key-pair after several failed connection attempts, similar to metaverse login code?
+
     }
 }
 

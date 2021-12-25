@@ -12,6 +12,7 @@ var PickRayController = Script.require('./resources/modules/pickRayController.js
 var NameTagListManager = Script.require('./resources/modules/nameTagListManager.js');
 var pickRayController = new PickRayController();
 var nameTagListManager = new NameTagListManager();
+var altKeyPressed = false;
 
 // Handles avatar being solo'd
 pickRayController
@@ -24,7 +25,9 @@ pickRayController
 
 
 function selectAvatar(uuid, intersection) {
-    nameTagListManager.handleSelect(uuid, intersection);
+    if (!altKeyPressed) {
+        nameTagListManager.handleSelect(uuid, intersection);
+    }
 }
 
 
@@ -46,26 +49,50 @@ function onAvatarAdded(uuid) {
     nameTagListManager.maybeAdd(uuid);
 }
 
+function blockedKeysPressed(event) {
+    if (event.isAlt) {
+        altKeyPressed = true;
+    }
+}
 
-// Called on init
-var avatarNametagMode;
-function create() {
-    nameTagListManager.create();
-    handleAvatarNametagMode(Settings.getValue("simplifiedNametag/avatarNametagMode", "on"));
-
-    Window.domainChanged.connect(onDomainChange);
-    AvatarManager.avatarRemovedEvent.connect(onAvatarRemoved);
-    AvatarManager.avatarAddedEvent.connect(onAvatarAdded);
+function blockedKeysReleased(event) {
+    if (!event.isAlt) {
+        altKeyPressed = false;
+    }
 }
 
 
+// Create a new nametag list manager, connect signals, and return back a new Nametag object.
+var avatarNametagMode;
+function startup() {
+    nameTagListManager.create();
+    handleAvatarNametagMode(Settings.getValue("simplifiedNametag/avatarNametagMode", "on"));
+
+    Script.scriptEnding.connect(unload);
+    Window.domainChanged.connect(onDomainChange);
+    AvatarManager.avatarRemovedEvent.connect(onAvatarRemoved);
+    AvatarManager.avatarAddedEvent.connect(onAvatarAdded);
+    Controller.keyPressEvent.connect(blockedKeysPressed);
+    Controller.keyReleaseEvent.connect(blockedKeysReleased);
+
+    function NameTag() {}
+    
+    NameTag.prototype = {
+        handleAvatarNametagMode: handleAvatarNametagMode
+    };
+
+    return new NameTag();
+}
+
 // Called when the script is closing
-function destroy() {
+function unload() {
     nameTagListManager.destroy();
     pickRayController.destroy();
     Window.domainChanged.disconnect(onDomainChange);
     AvatarManager.avatarRemovedEvent.disconnect(onAvatarRemoved);
     AvatarManager.avatarAddedEvent.disconnect(onAvatarAdded);
+    Controller.keyPressEvent.disconnect(blockedsKeyPressed);
+    Controller.keyReleaseEvent.disconnect(blockedKeysReleased);
 }
 
 
@@ -77,20 +104,10 @@ function handleAvatarNametagMode(newAvatarNameTagMode) {
 }
 
 
-// *************************************
-// START api
-// *************************************
-// #region api
+var nameTag = startup();
 
-
-module.exports = {
-    create: create,
-    destroy: destroy,
-    handleAvatarNametagMode: handleAvatarNametagMode
-};
-
-
-// #endregion
-// *************************************
-// END api
-// *************************************
+try {
+    module.exports = nameTag;
+} catch (e) {
+    // module doesn't exist when script run outside of simplified UI.
+}

@@ -26,12 +26,7 @@ void LineEntityRenderer::onRemoveFromSceneTyped(const TypedEntityPointer& entity
     }
 }
 
-bool LineEntityRenderer::needsRenderUpdateFromTypedEntity(const TypedEntityPointer& entity) const {
-    return entity->pointsChanged();
-}
-
 void LineEntityRenderer::doRenderUpdateAsynchronousTyped(const TypedEntityPointer& entity) {
-    entity->resetPointsChanged();
     _linePoints = entity->getLinePoints();
     auto geometryCache = DependencyManager::get<GeometryCache>();
     if (_lineVerticesID == GeometryCache::UNKNOWN_ID) {
@@ -52,10 +47,11 @@ void LineEntityRenderer::doRender(RenderArgs* args) {
     const auto& modelTransform = getModelTransform();
     Transform transform = Transform();
     transform.setTranslation(modelTransform.getTranslation());
-    transform.setRotation(modelTransform.getRotation());
+    transform.setRotation(BillboardModeHelpers::getBillboardRotation(modelTransform.getTranslation(), modelTransform.getRotation(), _billboardMode,
+        args->_renderMode == RenderArgs::RenderMode::SHADOW_RENDER_MODE ? BillboardModeHelpers::getPrimaryViewFrustumPosition() : args->getViewFrustum().getPosition()));
     batch.setModelTransform(transform);
     if (_linePoints.size() > 1) {
-        DependencyManager::get<GeometryCache>()->bindSimpleProgram(batch, false, false, true, false, false, true,
+        DependencyManager::get<GeometryCache>()->bindSimpleProgram(batch, false, false, false, false, true,
             _renderLayer != RenderLayer::WORLD || args->_renderMethod == Args::RenderMethod::FORWARD);
         DependencyManager::get<GeometryCache>()->renderVertices(batch, gpu::LINE_STRIP, _lineVerticesID);
     }

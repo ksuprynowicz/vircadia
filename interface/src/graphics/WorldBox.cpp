@@ -16,13 +16,13 @@ render::ItemID WorldBoxRenderData::_item{ render::Item::INVALID_ITEM_ID };
 
 namespace render {
     template <> const ItemKey payloadGetKey(const WorldBoxRenderData::Pointer& stuff) { return ItemKey::Builder::opaqueShape().withTagBits(ItemKey::TAG_BITS_0 | ItemKey::TAG_BITS_1); }
-    template <> const Item::Bound payloadGetBound(const WorldBoxRenderData::Pointer& stuff) { return Item::Bound(); }
+    template <> const Item::Bound payloadGetBound(const WorldBoxRenderData::Pointer& stuff, RenderArgs* args) { return Item::Bound(); }
     template <> void payloadRender(const WorldBoxRenderData::Pointer& stuff, RenderArgs* args) {
         if (Menu::getInstance()->isOptionChecked(MenuOption::WorldAxes)) {
             PerformanceTimer perfTimer("worldBox");
 
             auto& batch = *args->_batch;
-            DependencyManager::get<GeometryCache>()->bindSimpleProgram(batch, false, false, true, false, false, true, args->_renderMethod == Args::RenderMethod::FORWARD);
+            DependencyManager::get<GeometryCache>()->bindSimpleProgram(batch, false, false, false, false, true, args->_renderMethod == Args::RenderMethod::FORWARD);
             WorldBoxRenderData::renderWorldBox(args, batch);
         }
     }
@@ -108,8 +108,8 @@ void WorldBoxRenderData::renderWorldBox(RenderArgs* args, gpu::Batch& batch) {
         glm::vec3(HALF_TREE_SCALE, 0.0f, HALF_TREE_SCALE), GREY,
         geometryIds[17]);
 
-
-    geometryCache->renderWireCubeInstance(args, batch, GREY4);
+    auto pipeline = geometryCache->getShapePipelinePointer(false, false, args->_renderMethod == render::Args::RenderMethod::FORWARD);
+    geometryCache->renderWireCubeInstance(args, batch, GREY4, pipeline);
 
     //  Draw meter markers along the 3 axis to help with measuring things
     const float MARKER_DISTANCE = 1.0f;
@@ -117,22 +117,22 @@ void WorldBoxRenderData::renderWorldBox(RenderArgs* args, gpu::Batch& batch) {
 
     transform = Transform().setScale(MARKER_RADIUS);
     batch.setModelTransform(transform);
-    geometryCache->renderSolidSphereInstance(args, batch, RED);
+    geometryCache->renderSolidSphereInstance(args, batch, RED, pipeline);
 
     transform = Transform().setTranslation(glm::vec3(MARKER_DISTANCE, 0.0f, 0.0f)).setScale(MARKER_RADIUS);
     batch.setModelTransform(transform);
-    geometryCache->renderSolidSphereInstance(args, batch, RED);
+    geometryCache->renderSolidSphereInstance(args, batch, RED, pipeline);
 
     transform = Transform().setTranslation(glm::vec3(0.0f, MARKER_DISTANCE, 0.0f)).setScale(MARKER_RADIUS);
     batch.setModelTransform(transform);
-    geometryCache->renderSolidSphereInstance(args, batch, GREEN);
+    geometryCache->renderSolidSphereInstance(args, batch, GREEN, pipeline);
 
     transform = Transform().setTranslation(glm::vec3(0.0f, 0.0f, MARKER_DISTANCE)).setScale(MARKER_RADIUS);
     batch.setModelTransform(transform);
-    geometryCache->renderSolidSphereInstance(args, batch, BLUE);
+    geometryCache->renderSolidSphereInstance(args, batch, BLUE, pipeline);
 
     transform = Transform().setTranslation(glm::vec3(MARKER_DISTANCE, 0.0f, MARKER_DISTANCE)).setScale(MARKER_RADIUS);
     batch.setModelTransform(transform);
-    geometryCache->renderSolidSphereInstance(args, batch, GREY);
+    geometryCache->renderSolidSphereInstance(args, batch, GREY, pipeline);
 }
 

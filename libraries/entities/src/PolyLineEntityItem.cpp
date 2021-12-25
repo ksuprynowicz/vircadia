@@ -14,6 +14,7 @@
 #include <QDebug>
 
 #include <ByteCountCoding.h>
+#include <Extents.h>
 
 #include "EntitiesLogging.h"
 #include "EntityItemProperties.h"
@@ -25,7 +26,7 @@ const float PolyLineEntityItem::DEFAULT_LINE_WIDTH = 0.1f;
 const int PolyLineEntityItem::MAX_POINTS_PER_LINE = 60;
 
 EntityItemPointer PolyLineEntityItem::factory(const EntityItemID& entityID, const EntityItemProperties& properties) {
-    EntityItemPointer entity(new PolyLineEntityItem(entityID), [](EntityItem* ptr) { ptr->deleteLater(); });
+    std::shared_ptr<PolyLineEntityItem> entity(new PolyLineEntityItem(entityID), [](PolyLineEntityItem* ptr) { ptr->deleteLater(); });
     entity->setProperties(properties);
     return entity;
 }
@@ -52,9 +53,8 @@ EntityItemProperties PolyLineEntityItem::getProperties(const EntityPropertyFlags
     return properties;
 }
 
-bool PolyLineEntityItem::setProperties(const EntityItemProperties& properties) {
+bool PolyLineEntityItem::setSubClassProperties(const EntityItemProperties& properties) {
     bool somethingChanged = false;
-    somethingChanged = EntityItem::setProperties(properties); // set the properties in our base class
 
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(color, setColor);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(textures, setTextures);
@@ -67,16 +67,6 @@ bool PolyLineEntityItem::setProperties(const EntityItemProperties& properties) {
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(glow, setGlow);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(faceCamera, setFaceCamera);
 
-    if (somethingChanged) {
-        bool wantDebug = false;
-        if (wantDebug) {
-            uint64_t now = usecTimestampNow();
-            int elapsed = now - getLastEdited();
-            qCDebug(entities) << "PolyLineEntityItem::setProperties() AFTER update... edited AGO=" << elapsed <<
-                "now=" << now << " getLastEdited()=" << getLastEdited();
-        }
-        setLastEdited(properties._lastEdited);
-    }
     return somethingChanged;
 }
 
@@ -85,7 +75,7 @@ void PolyLineEntityItem::setLinePoints(const QVector<glm::vec3>& points) {
         _points = points;
         _pointsChanged = true;
     });
-    computeAndUpdateDimensionsAndPosition();
+    computeAndUpdateDimensions();
 }
 
 void PolyLineEntityItem::setStrokeWidths(const QVector<float>& strokeWidths) {
@@ -93,7 +83,7 @@ void PolyLineEntityItem::setStrokeWidths(const QVector<float>& strokeWidths) {
         _widths = strokeWidths;
         _widthsChanged = true;
     });
-    computeAndUpdateDimensionsAndPosition();
+    computeAndUpdateDimensions();
 }
 
 void PolyLineEntityItem::setNormals(const QVector<glm::vec3>& normals) {
@@ -110,7 +100,7 @@ void PolyLineEntityItem::setStrokeColors(const QVector<glm::vec3>& strokeColors)
     });
 }
 
-void PolyLineEntityItem::computeAndUpdateDimensionsAndPosition() {
+void PolyLineEntityItem::computeAndUpdateDimensions() {
     QVector<glm::vec3> points;
     QVector<float> widths;
 
@@ -127,6 +117,32 @@ void PolyLineEntityItem::computeAndUpdateDimensionsAndPosition() {
     }
 
     setScaledDimensions(2.0f * (maxHalfDim + maxWidth));
+}
+
+void PolyLineEntityItem::computeTightLocalBoundingBox(AABox& localBox) const {
+    QVector<glm::vec3> points;
+    QVector<float> widths;
+    withReadLock([&] {
+        points = _points;
+        widths = _widths;
+    });
+
+    if (points.size() > 0) {
+        Extents extents;
+        float maxWidth = DEFAULT_LINE_WIDTH;
+        for (int i = 0; i < points.length(); i++) {
+            extents.addPoint(points[i]);
+            if (i < widths.size()) {
+                maxWidth = glm::max(maxWidth, widths[i]);
+            }
+        }
+        extents.addPoint(extents.minimum - maxWidth * Vectors::ONE);
+        extents.addPoint(extents.maximum + maxWidth * Vectors::ONE);
+
+        localBox.setBox(extents.minimum, extents.maximum - extents.minimum);
+    } else {
+        localBox.setBox(glm::vec3(-0.5f * DEFAULT_LINE_WIDTH), glm::vec3(DEFAULT_LINE_WIDTH));
+    }
 }
 
 int PolyLineEntityItem::readEntitySubclassDataFromBuffer(const unsigned char* data, int bytesLeftToRead,
@@ -245,5 +261,26 @@ void PolyLineEntityItem::setColor(const glm::u8vec3& value) {
 glm::u8vec3 PolyLineEntityItem::getColor() const {
     return resultWithReadLock<glm::u8vec3>([&] {
         return _color;
+    });
+}
+
+void PolyLineEntityItem::setIsUVModeStretch(bool isUVModeStretch) {
+    withWriteLock([&] {
+        _needsRenderUpdate |= _isUVModeStretch != isUVModeStretch;
+        _isUVModeStretch = isUVModeStretch;
+    });
+}
+
+void PolyLineEntityItem::setGlow(bool glow) {
+    withWriteLock([&] {
+        _needsRenderUpdate |= _glow != glow;
+        _glow = glow;
+    });
+}
+
+void PolyLineEntityItem::setFaceCamera(bool faceCamera) {
+    withWriteLock([&] {
+        _needsRenderUpdate |= _faceCamera != faceCamera;
+        _faceCamera = faceCamera;
     });
 }

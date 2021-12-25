@@ -39,7 +39,7 @@ public:
     float distance { FLT_MAX };
     bool intersects { false };
 
-    /**jsdoc
+    /*@jsdoc
      * An intersection result for a ray pick.
      *
      * @typedef {object} RayPickResult
@@ -87,6 +87,8 @@ public:
     RayPick(glm::vec3 position, glm::vec3 direction, const PickFilter& filter, float maxDistance, bool enabled) :
         Pick(PickRay(position, direction), filter, maxDistance, enabled) {
     }
+
+    PickType getType() const override { return PickType::Ray; }
 
     PickRay getMathematicalPick() const override;
 

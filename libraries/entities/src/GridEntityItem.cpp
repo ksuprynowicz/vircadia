@@ -14,7 +14,7 @@ const uint32_t GridEntityItem::DEFAULT_MAJOR_GRID_EVERY = 5;
 const float GridEntityItem::DEFAULT_MINOR_GRID_EVERY = 1.0f;
 
 EntityItemPointer GridEntityItem::factory(const EntityItemID& entityID, const EntityItemProperties& properties) {
-    Pointer entity(new GridEntityItem(entityID), [](EntityItem* ptr) { ptr->deleteLater(); });
+    Pointer entity(new GridEntityItem(entityID), [](GridEntityItem* ptr) { ptr->deleteLater(); });
     entity->setProperties(properties);
     return entity;
 }
@@ -46,30 +46,21 @@ EntityItemProperties GridEntityItem::getProperties(const EntityPropertyFlags& de
     return properties;
 }
 
-bool GridEntityItem::setProperties(const EntityItemProperties& properties) {
-    bool somethingChanged = EntityItem::setProperties(properties); // set the properties in our base class
+bool GridEntityItem::setSubClassProperties(const EntityItemProperties& properties) {
+    bool somethingChanged = false;
 
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(color, setColor);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(alpha, setAlpha);
     withWriteLock([&] {
         bool pulsePropertiesChanged = _pulseProperties.setProperties(properties);
         somethingChanged |= pulsePropertiesChanged;
+        _needsRenderUpdate |= pulsePropertiesChanged;
     });
 
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(followCamera, setFollowCamera);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(majorGridEvery, setMajorGridEvery);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(minorGridEvery, setMinorGridEvery);
 
-    if (somethingChanged) {
-        bool wantDebug = false;
-        if (wantDebug) {
-            uint64_t now = usecTimestampNow();
-            int elapsed = now - getLastEdited();
-            qCDebug(entities) << "GridEntityItem::setProperties() AFTER update... edited AGO=" << elapsed <<
-                    "now=" << now << " getLastEdited()=" << getLastEdited();
-        }
-        setLastEdited(properties.getLastEdited());
-    }
     return somethingChanged;
 }
 
@@ -136,6 +127,7 @@ void GridEntityItem::appendSubclassData(OctreePacketData* packetData, EncodeBits
 
 void GridEntityItem::setColor(const glm::u8vec3& color) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _color != color;
         _color = color;
     });
 }
@@ -148,6 +140,7 @@ glm::u8vec3 GridEntityItem::getColor() const {
 
 void GridEntityItem::setAlpha(float alpha) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _alpha != alpha;
         _alpha = alpha;
     });
 }
@@ -160,6 +153,7 @@ float GridEntityItem::getAlpha() const {
 
 void GridEntityItem::setFollowCamera(bool followCamera) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _followCamera != followCamera;
         _followCamera = followCamera;
     });
 }
@@ -171,9 +165,12 @@ bool GridEntityItem::getFollowCamera() const {
 }
 
 void GridEntityItem::setMajorGridEvery(uint32_t majorGridEvery) {
+    const uint32_t MAJOR_GRID_EVERY_MIN = 1;
+    majorGridEvery = std::max(majorGridEvery, MAJOR_GRID_EVERY_MIN);
+
     withWriteLock([&] {
-        const uint32_t MAJOR_GRID_EVERY_MIN = 1;
-        _majorGridEvery = std::max(majorGridEvery, MAJOR_GRID_EVERY_MIN);
+        _needsRenderUpdate |= _majorGridEvery != majorGridEvery;
+        _majorGridEvery = majorGridEvery;
     });
 }
 
@@ -184,9 +181,12 @@ uint32_t GridEntityItem::getMajorGridEvery() const {
 }
 
 void GridEntityItem::setMinorGridEvery(float minorGridEvery) {
+    const float MINOR_GRID_EVERY_MIN = 0.01f;
+    minorGridEvery = std::max(minorGridEvery, MINOR_GRID_EVERY_MIN);
+
     withWriteLock([&] {
-        const float MINOR_GRID_EVERY_MIN = 0.01f;
-        _minorGridEvery = std::max(minorGridEvery, MINOR_GRID_EVERY_MIN);
+        _needsRenderUpdate |= _minorGridEvery != minorGridEvery;
+        _minorGridEvery = minorGridEvery;
     });
 }
 

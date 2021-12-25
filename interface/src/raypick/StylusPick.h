@@ -31,6 +31,8 @@ public:
         surfaceNormal = stylusPickResult.surfaceNormal;
     }
 
+    StylusPickResult& operator=(const StylusPickResult &right) = default;
+
     IntersectionType type { NONE };
     bool intersects { false };
     QUuid objectID;
@@ -38,7 +40,7 @@ public:
     glm::vec3 intersection { NAN };
     glm::vec3 surfaceNormal { NAN };
 
-    /**jsdoc
+    /*@jsdoc
      * An intersection result for a stylus pick.
      *
      * @typedef {object} StylusPickResult
@@ -72,6 +74,7 @@ class StylusPick : public Pick<StylusTip> {
 public:
     StylusPick(Side side, const PickFilter& filter, float maxDistance, bool enabled, const glm::vec3& tipOffset);
 
+    PickType getType() const override { return PickType::Stylus; }
     StylusTip getMathematicalPick() const override;
     PickResultPointer getDefaultResult(const QVariantMap& pickVariant) const override;
     PickResultPointer getEntityIntersection(const StylusTip& pick) override;

@@ -13,14 +13,15 @@
 #include <functional>
 #include <memory>
 #include <stack>
+#include <unordered_set>
 
 #include <GLMHelpers.h>
 #include <ViewFrustum.h>
 #include <StencilMaskMode.h>
+#include <UUIDHasher.h>
 
 #include <gpu/Forward.h>
 #include "Forward.h"
-
 
 class AABox;
 
@@ -136,7 +137,7 @@ namespace render {
         render::ScenePointer _scene;
         int8_t _cameraMode { -1 };
 
-        std::function<void(gpu::Batch&, const gpu::TexturePointer&, bool mirror)> _hudOperator { nullptr };
+        std::function<void(gpu::Batch&, const gpu::TexturePointer&)> _hudOperator { nullptr };
         gpu::TexturePointer _hudTexture { nullptr };
 
         bool _takingSnapshot { false };

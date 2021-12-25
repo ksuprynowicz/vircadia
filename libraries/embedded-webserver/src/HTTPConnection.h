@@ -45,6 +45,7 @@ class HTTPConnection : public QObject {
 
 public:
     static const char* StatusCode200;
+    static const char* StatusCode204;
     static const char* StatusCode301;
     static const char* StatusCode302;
     static const char* StatusCode400;
@@ -76,6 +77,9 @@ public:
 
     /// Returns a pointer to the underlying socket, to which WebSocket message bodies should be written.
     QTcpSocket* socket() const { return _socket; }
+
+    /// Returns the IP address on the other side of the connection
+    const QHostAddress &peerAddress() const { return _address; }
 
     /// Returns the request operation.
     QNetworkAccessManager::Operation requestOperation() const { return _requestOperation; }

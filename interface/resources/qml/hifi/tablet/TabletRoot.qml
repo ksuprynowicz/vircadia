@@ -104,6 +104,10 @@ Rectangle {
 	            if (loader.item.hasOwnProperty("gotoPreviousApp")) {
 	                loader.item.gotoPreviousApp = true;
 	            }
+
+                if (loader.item.hasOwnProperty("gotoPreviousAppFromScript")) {
+                    loader.item.gotoPreviousAppFromScript = true;
+                }
             });
         }
     }
@@ -196,7 +200,7 @@ Rectangle {
         id: eventBridgeConnection
         target: eventBridge
         onWebEventReceived: {
-            if (message.slice(0, 17) === "CLARA.IO DOWNLOAD") {
+            if (typeof message === "string" && message.slice(0, 17) === "CLARA.IO DOWNLOAD") {
                 ApplicationInterface.addAssetToWorldFromURL(message.slice(18));
             }
         }
@@ -276,7 +280,7 @@ Rectangle {
                 } else {
                     console.log("newSource is of unknown type!");
                 }
-                
+
                 screenChanged(type, newSource);
 	        });
     	}

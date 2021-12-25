@@ -50,13 +50,13 @@ QString OculusControllerManager::configurationLayout() {
 
 void OculusControllerManager::setConfigurationSettings(const QJsonObject configurationSettings) {
     if (configurationSettings.contains("trackControllersInOculusHome")) {
-        _touch->_trackControllersInOculusHome.set(configurationSettings["trackControllersInOculusHome"].toBool());
+        _trackControllersInOculusHome.set(configurationSettings["trackControllersInOculusHome"].toBool());
     }
 }
 
 QJsonObject OculusControllerManager::configurationSettings() {
     QJsonObject configurationSettings;
-    configurationSettings["trackControllersInOculusHome"] = _touch->_trackControllersInOculusHome.get();
+    configurationSettings["trackControllersInOculusHome"] = _trackControllersInOculusHome.get();
     return configurationSettings;
 }
 
@@ -232,7 +232,7 @@ void OculusControllerManager::TouchDevice::update(float deltaTime,
     quint64 currentTime = usecTimestampNow();
     static const auto REQUIRED_HAND_STATUS = ovrStatus_OrientationTracked | ovrStatus_PositionTracked;
     bool hasInputFocus = ovr::hasInputFocus();
-    bool trackControllersInOculusHome = _trackControllersInOculusHome.get();
+    bool trackControllersInOculusHome = _parent._trackControllersInOculusHome.get();
     auto tracking = ovr::getTrackingState(); // ovr_GetTrackingState(_parent._session, 0, false);
     ovr::for_each_hand([&](ovrHandType hand) {
         ++numTrackedControllers;
@@ -369,7 +369,13 @@ void OculusControllerManager::TouchDevice::handleRotationForUntrackedHand(const 
     pose = pose.transform(controllerToAvatar);
 }
 
-bool OculusControllerManager::TouchDevice::triggerHapticPulse(float strength, float duration, controller::Hand hand) {
+bool OculusControllerManager::TouchDevice::triggerHapticPulse(float strength, float duration, uint16_t index) {
+    if (index > 2) {
+        return false;
+    }
+
+    controller::Hand hand = (controller::Hand)index;
+
     Locker locker(_lock);
     bool toReturn = true;
     ovr::withSession([&](ovrSession session) {
@@ -408,7 +414,7 @@ void OculusControllerManager::TouchDevice::stopHapticPulse(bool leftHand) {
     });
 }
 
-/**jsdoc
+/*@jsdoc
  * <p>The <code>Controller.Hardware.OculusTouch</code> object has properties representing the Oculus Rift. The property values 
  * are integer IDs, uniquely identifying each output. <em>Read-only.</em></p>
  * <p>These outputs can be mapped to actions or functions or <code>Controller.Standard</code> items in a {@link RouteObject} 

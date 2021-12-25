@@ -29,7 +29,7 @@ public:
     CheckoutProxy(QObject* qmlObject, QObject* parent = nullptr);
 };
 
-/**jsdoc
+/*@jsdoc
  * The <code>WalletScriptingInterface</code> API provides functions related to the user's wallet and verification of certified 
  * avatar entities.
  *
@@ -42,7 +42,7 @@ public:
  * @property {WalletScriptingInterface.WalletStatus} walletStatus - The status of the user's wallet. <em>Read-only.</em>
  * @property {boolean} limitedCommerce - <code>true</code> if Interface is running in limited commerce mode. In limited commerce 
  *     mode, certain Interface functionalities are disabled, e.g., users can't buy items that are not free from the Marketplace. 
- *     The Oculus Store version of Interface runs in limited commerce mode. <em>Read-only.</em>
+ *     The Oculus Store and Steam versions of Interface run in limited commerce mode. <em>Read-only.</em>
  */
 class WalletScriptingInterface : public QObject, public Dependency {
     Q_OBJECT
@@ -54,13 +54,13 @@ public:
 
     WalletScriptingInterface();
 
-    /**jsdoc
+    /*@jsdoc
      * Checks and updates the user's wallet status.
      * @function WalletScriptingInterface.refreshWalletStatus
      */
     Q_INVOKABLE void refreshWalletStatus();
 
-    /**jsdoc
+    /*@jsdoc
      * Gets the current status of the user's wallet.
      * @function WalletScriptingInterface.getWalletStatus
      * @returns {WalletScriptingInterface.WalletStatus}
@@ -70,12 +70,12 @@ public:
      */
     Q_INVOKABLE uint getWalletStatus() { return _walletStatus; }
 
-    /**jsdoc
+    /*@jsdoc
      * Check that a certified avatar entity is owned by the avatar whose entity it is. The result of the check is provided via 
      * the {@link WalletScriptingInterface.ownershipVerificationSuccess|ownershipVerificationSuccess} and 
-     * {@link WalletScriptingInterface.ownershipVerificationFailed|ownershipVerificationFailed} signals.<br />
-     * <strong>Warning:</strong> Neither of these signals are triggered if the entity is not an avatar entity or is not 
-     * certified.
+     * {@link WalletScriptingInterface.ownershipVerificationFailed|ownershipVerificationFailed} signals.
+     * <p><strong>Warning:</strong> Neither of these signals are triggered if the entity is not an avatar entity or is not 
+     * certified.</p>
      * @function WalletScriptingInterface.proveAvatarEntityOwnershipVerification
      * @param {Uuid} entityID - The avatar entity's ID.
      * @example <caption>Check the ownership of all nearby certified avatar entities.</caption>
@@ -117,7 +117,7 @@ public:
 
 signals:
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the user's wallet status changes.
      * @function WalletScriptingInterface.walletStatusChanged
      * @returns {Signal}
@@ -128,14 +128,14 @@ signals:
      */
     void walletStatusChanged();
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the user's limited commerce status changes.
      * @function WalletScriptingInterface.limitedCommerceChanged
      * @returns {Signal}
      */
     void limitedCommerceChanged();
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the user rezzes a certified entity but the user's wallet is not ready. So the certified location of the
      * entity cannot be updated in the metaverse.
      * @function WalletScriptingInterface.walletNotSetup
@@ -143,18 +143,20 @@ signals:
      */
     void walletNotSetup();
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a certified avatar entity's ownership check requested via 
-     * {@link WalletScriptingInterface.proveAvatarEntityOwnershipVerification|proveAvatarEntityOwnershipVerification} succeeds. 
+     * {@link WalletScriptingInterface.proveAvatarEntityOwnershipVerification|proveAvatarEntityOwnershipVerification} or 
+     * {@link ContextOverlay.requestOwnershipVerification} succeeds. 
      * @function WalletScriptingInterface.ownershipVerificationSuccess
      * @param {Uuid} entityID - The ID of the avatar entity checked.
      * @returns {Signal}
      */
     void ownershipVerificationSuccess(const QUuid& entityID);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when a certified avatar entity's ownership check requested via
-     * {@link WalletScriptingInterface.proveAvatarEntityOwnershipVerification|proveAvatarEntityOwnershipVerification} fails.
+     * {@link WalletScriptingInterface.proveAvatarEntityOwnershipVerification|proveAvatarEntityOwnershipVerification} or
+     * {@link ContextOverlay.requestOwnershipVerification} fails.
      * @function WalletScriptingInterface.ownershipVerificationFailed
      * @param {Uuid} entityID - The ID of the avatar entity checked.
      * @returns {Signal}

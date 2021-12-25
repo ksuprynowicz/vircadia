@@ -4,10 +4,13 @@
 //
 //  Created by Stephen Birarda on 4/8/13.
 //  Copyright 2013 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
 //
+
+// WEBRTC TODO: Rename / split up into files with better names.
 
 #ifndef hifi_PacketHeaders_h
 #define hifi_PacketHeaders_h
@@ -32,7 +35,7 @@ public:
     // This enum must hold 256 or fewer packet types (so the value is <= 255) since it is statically typed as a uint8_t
     enum class Value : uint8_t {
         Unknown,
-        StunResponse,
+        DomainConnectRequestPending,
         DomainList,
         Ping,
         PingReply,
@@ -135,6 +138,8 @@ public:
         AudioSoloRequest,
         BulkAvatarTraitsAck,
         StopInjector,
+        AvatarZonePresence,
+        WebRTCSignaling,
         NUM_PACKET_TYPE
     };
 
@@ -168,7 +173,7 @@ public:
 
     const static QSet<PacketTypeEnum::Value> getNonSourcedPackets() {
         const static QSet<PacketTypeEnum::Value> NON_SOURCED_PACKETS = QSet<PacketTypeEnum::Value>()
-            << PacketTypeEnum::Value::StunResponse << PacketTypeEnum::Value::CreateAssignment
+            << PacketTypeEnum::Value::DomainConnectRequestPending << PacketTypeEnum::Value::CreateAssignment
             << PacketTypeEnum::Value::RequestAssignment << PacketTypeEnum::Value::DomainServerRequireDTLS
             << PacketTypeEnum::Value::DomainConnectRequest << PacketTypeEnum::Value::DomainList
             << PacketTypeEnum::Value::DomainConnectionDenied << PacketTypeEnum::Value::DomainServerPathQuery
@@ -185,7 +190,8 @@ public:
             << PacketTypeEnum::Value::OctreeFileReplacement << PacketTypeEnum::Value::ReplicatedMicrophoneAudioNoEcho
             << PacketTypeEnum::Value::ReplicatedMicrophoneAudioWithEcho << PacketTypeEnum::Value::ReplicatedInjectAudio
             << PacketTypeEnum::Value::ReplicatedSilentAudioFrame << PacketTypeEnum::Value::ReplicatedAvatarIdentity
-            << PacketTypeEnum::Value::ReplicatedKillAvatar << PacketTypeEnum::Value::ReplicatedBulkAvatarData;
+            << PacketTypeEnum::Value::ReplicatedKillAvatar << PacketTypeEnum::Value::ReplicatedBulkAvatarData
+            << PacketTypeEnum::Value::AvatarZonePresence << PacketTypeEnum::Value::WebRTCSignaling;
         return NON_SOURCED_PACKETS;
     }
 
@@ -210,10 +216,11 @@ using PacketType = PacketTypeEnum::Value;
 
 const int NUM_BYTES_MD5_HASH = 16;
 
-typedef char PacketVersion;
+// NOTE: There is a max limit of 255, hopefully we have a better way to manage this by then.
+typedef uint8_t PacketVersion;
 
 PacketVersion versionForPacketType(PacketType packetType);
-QByteArray protocolVersionsSignature(); /// returns a unqiue signature for all the current protocols
+QByteArray protocolVersionsSignature(); /// returns a unique signature for all the current protocols
 QString protocolVersionsSignatureBase64();
 
 #if (PR_BUILD || DEV_BUILD)
@@ -224,7 +231,7 @@ uint qHash(const PacketType& key, uint seed);
 QDebug operator<<(QDebug debug, const PacketType& type);
 
 // Due to the different legacy behaviour, we need special processing for domains that were created before
-// the zone inheritance modes were added.  These have version numbers up to 80
+// the zone inheritance modes were added. These have version numbers up to 80.
 enum class EntityVersion : PacketVersion {
     StrokeColorProperty = 0,
     HasDynamicOwnershipTests,
@@ -271,6 +278,18 @@ enum class EntityVersion : PacketVersion {
     ParticleShapeType,
     ParticleShapeTypeDeadlockFix,
     PrivateUserData,
+    TextUnlit,
+    ShadowBiasAndDistance,
+    TextEntityFonts,
+    ScriptServerKinematicMotion,
+    ScreenshareZone,
+    ZoneOcclusion,
+    ModelBlendshapes,
+    TransparentWeb,
+    UseOriginalPivot,
+    UserAgent,
+    AllBillboardMode,
+    TextAlignment,
 
     // Add new versions above here
     NUM_PACKET_TYPE,
@@ -335,7 +354,8 @@ enum class AvatarMixerPacketVersion : PacketVersion {
     SendMaxTranslationDimension,
     FBXJointOrderChange,
     HandControllerSection,
-    SendVerificationFailed
+    SendVerificationFailed,
+    ARKitBlendshapes
 };
 
 enum class DomainConnectRequestVersion : PacketVersion {
@@ -348,7 +368,13 @@ enum class DomainConnectRequestVersion : PacketVersion {
     HasTimestamp,
     HasReason,
     HasSystemInfo,
-    HasCompressedSystemInfo
+    HasCompressedSystemInfo,
+    SocketTypes
+};
+
+enum class DomainListRequestVersion : PacketVersion {
+    PreSocketTypes = 22,
+    SocketTypes
 };
 
 enum class DomainConnectionDeniedVersion : PacketVersion {
@@ -359,7 +385,8 @@ enum class DomainConnectionDeniedVersion : PacketVersion {
 
 enum class DomainServerAddedNodeVersion : PacketVersion {
     PrePermissionsGrid = 17,
-    PermissionsGrid
+    PermissionsGrid,
+    SocketTypes
 };
 
 enum class DomainListVersion : PacketVersion {
@@ -369,7 +396,8 @@ enum class DomainListVersion : PacketVersion {
     GetMachineFingerprintFromUUIDSupport,
     AuthenticationOptional,
     HasTimestamp,
-    HasConnectReason
+    HasConnectReason,
+    SocketTypes
 };
 
 enum class AudioVersion : PacketVersion {

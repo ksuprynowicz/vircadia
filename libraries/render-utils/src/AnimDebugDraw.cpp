@@ -68,7 +68,7 @@ typedef render::Payload<AnimDebugDrawData> AnimDebugDrawPayload;
 
 namespace render {
     template <> const ItemKey payloadGetKey(const AnimDebugDrawData::Pointer& data) { return (data->_isVisible ? ItemKey::Builder::transparentShape() : ItemKey::Builder::transparentShape().withInvisible()).withTagBits(ItemKey::TAG_BITS_ALL); }
-    template <> const Item::Bound payloadGetBound(const AnimDebugDrawData::Pointer& data) { return data->_bound; }
+    template <> const Item::Bound payloadGetBound(const AnimDebugDrawData::Pointer& data, RenderArgs* args) { return data->_bound; }
     template <> void payloadRender(const AnimDebugDrawData::Pointer& data, RenderArgs* args) {
         data->render(args);
     }
@@ -393,7 +393,7 @@ void AnimDebugDraw::update() {
             glm::quat rot = std::get<0>(iter.second);
             glm::vec3 pos = std::get<1>(iter.second);
             glm::vec4 color = std::get<2>(iter.second);
-            const float radius = POSE_RADIUS;
+            const float radius = std::get<3>(iter.second) * POSE_RADIUS;
             addBone(AnimPose::identity, AnimPose(glm::vec3(1), rot, pos), radius, color, v);
         }
 
@@ -402,7 +402,7 @@ void AnimDebugDraw::update() {
             glm::quat rot = std::get<0>(iter.second);
             glm::vec3 pos = std::get<1>(iter.second);
             glm::vec4 color = std::get<2>(iter.second);
-            const float radius = POSE_RADIUS;
+            const float radius = std::get<3>(iter.second) * POSE_RADIUS;
             addBone(myAvatarPose, AnimPose(glm::vec3(1), rot, pos), radius, color, v);
         }
 

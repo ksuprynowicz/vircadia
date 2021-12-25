@@ -4,6 +4,7 @@
 //
 //  Created by Clement on 1/16/15.
 //  Copyright 2015 High Fidelity, Inc.
+//  Copyright 2021 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -12,7 +13,6 @@
 #include "LODManager.h"
 
 #include <SettingHandle.h>
-#include <OctreeUtils.h>
 #include <Util.h>
 #include <shared/GlobalAppProperties.h>
 
@@ -20,11 +20,12 @@
 #include "ui/DialogsManager.h"
 #include "InterfaceLogging.h"
 
-const float LODManager::DEFAULT_DESKTOP_LOD_DOWN_FPS = LOD_DEFAULT_QUALITY_LEVEL * LOD_MAX_LIKELY_DESKTOP_FPS;
-const float LODManager::DEFAULT_HMD_LOD_DOWN_FPS = LOD_DEFAULT_QUALITY_LEVEL * LOD_MAX_LIKELY_HMD_FPS;
+const QString LOD_SETTINGS_PREFIX { "lodManager/" };
 
-Setting::Handle<float> desktopLODDecreaseFPS("desktopLODDecreaseFPS", LODManager::DEFAULT_DESKTOP_LOD_DOWN_FPS);
-Setting::Handle<float> hmdLODDecreaseFPS("hmdLODDecreaseFPS", LODManager::DEFAULT_HMD_LOD_DOWN_FPS);
+Setting::Handle<bool> automaticLODAdjust(LOD_SETTINGS_PREFIX + "automaticLODAdjust", (bool)DEFAULT_LOD_AUTO_ADJUST);
+Setting::Handle<float> lodHalfAngle(LOD_SETTINGS_PREFIX + "lodHalfAngle", (float)getHalfAngleFromVisibilityDistance(DEFAULT_VISIBILITY_DISTANCE_FOR_UNIT_ELEMENT));
+Setting::Handle<int> desktopWorldDetailQuality(LOD_SETTINGS_PREFIX + "desktopWorldDetailQuality", (int)DEFAULT_WORLD_DETAIL_QUALITY);
+Setting::Handle<int> hmdWorldDetailQuality(LOD_SETTINGS_PREFIX + "hmdWorldDetailQuality", (int)DEFAULT_WORLD_DETAIL_QUALITY);
 
 LODManager::LODManager() {
 }
@@ -54,6 +55,7 @@ void LODManager::setRenderTimes(float presentTime, float engineRunTime, float ba
 }
 
 void LODManager::autoAdjustLOD(float realTimeDelta) {
+    std::lock_guard<std::mutex> { _automaticLODLock };
  
     // The "render time" is the worse of:
     // - engineRunTime: Time spent in the render thread in the engine producing the gpu::Frame N
@@ -92,8 +94,7 @@ void LODManager::autoAdjustLOD(float realTimeDelta) {
         return;
     }
 
-    // Previous values for output
-    float oldOctreeSizeScale = getOctreeSizeScale();
+    // Previous value for output
     float oldLODAngle = getLODAngleDeg();
 
     // Target fps is slightly overshooted by 5hz
@@ -164,7 +165,7 @@ void LODManager::autoAdjustLOD(float realTimeDelta) {
     // And now add the output of the controller to the LODAngle where we will guarantee it is in the proper range
     setLODAngleDeg(oldLODAngle + output);
 
-    if (oldOctreeSizeScale != _octreeSizeScale) {
+    if (oldLODAngle != getLODAngleDeg()) {
         auto lodToolsDialog = DependencyManager::get<DialogsManager>()->getLodToolsDialog();
         if (lodToolsDialog) {
             lodToolsDialog->reloadSliders();
@@ -172,21 +173,34 @@ void LODManager::autoAdjustLOD(float realTimeDelta) {
     }
 }
 
-float LODManager::getLODAngleHalfTan() const {
-    return getPerspectiveAccuracyAngleTan(_octreeSizeScale, _boundaryLevelAdjust);
+float LODManager::getLODHalfAngleTan() const {
+    return tan(_lodHalfAngle);
 }
 float LODManager::getLODAngle() const {
-    return 2.0f * atanf(getLODAngleHalfTan());
+    return 2.0f * _lodHalfAngle;
 }
 float LODManager::getLODAngleDeg() const {
     return glm::degrees(getLODAngle());
 }
 
+float LODManager::getVisibilityDistance() const {
+    float systemDistance = getVisibilityDistanceFromHalfAngle(_lodHalfAngle);
+    // Maintain behavior with deprecated _boundaryLevelAdjust property
+    return systemDistance * powf(2.0f, _boundaryLevelAdjust);
+}
+
+void LODManager::setVisibilityDistance(float distance) {
+    // Maintain behavior with deprecated _boundaryLevelAdjust property
+    float userDistance = distance / powf(2.0f, _boundaryLevelAdjust);
+    _lodHalfAngle = getHalfAngleFromVisibilityDistance(userDistance);
+    saveSettings();
+}
+
 void LODManager::setLODAngleDeg(float lodAngle) {
-    auto newSolidAngle = std::max(0.5f, std::min(lodAngle, 90.f));
-    auto halTan = glm::tan(glm::radians(newSolidAngle * 0.5f));
-    auto octreeSizeScale = TREE_SCALE * OCTREE_TO_MESH_RATIO / halTan;
-    setOctreeSizeScale(octreeSizeScale);
+    auto newLODAngleDeg = std::max(0.001f, std::min(lodAngle, 90.f));
+    auto newLODHalfAngle = glm::radians(newLODAngleDeg * 0.5f);
+    _lodHalfAngle = newLODHalfAngle;
+    saveSettings();
 }
 
 void LODManager::setSmoothScale(float t) {
@@ -235,7 +249,9 @@ void LODManager::resetLODAdjust() {
 }
 
 void LODManager::setAutomaticLODAdjust(bool value) {
+    std::lock_guard<std::mutex> { _automaticLODLock };
     _automaticLODAdjust = value;
+    saveSettings();
     emit autoLODChanged();
 }
 
@@ -265,7 +281,11 @@ bool LODManager::shouldRender(const RenderArgs* args, const AABox& bounds) {
 };
 
 void LODManager::setOctreeSizeScale(float sizeScale) {
-    _octreeSizeScale = sizeScale;
+    setVisibilityDistance(sizeScale / TREE_SCALE);
+}
+
+float LODManager::getOctreeSizeScale() const {
+    return getVisibilityDistance() * TREE_SCALE;
 }
 
 void LODManager::setBoundaryLevelAdjust(int boundaryLevelAdjust) {
@@ -291,12 +311,14 @@ QString LODManager::getLODFeedbackText() {
     } break;
     }
     // distance feedback
-    float octreeSizeScale = getOctreeSizeScale();
-    float relativeToDefault = octreeSizeScale / DEFAULT_OCTREE_SIZE_SCALE;
+    float visibilityDistance = getVisibilityDistance();
+    float relativeToDefault = visibilityDistance / DEFAULT_VISIBILITY_DISTANCE_FOR_UNIT_ELEMENT;
     int relativeToTwentyTwenty = 20 / relativeToDefault;
 
     QString result;
-    if (relativeToDefault > 1.01f) {
+    if (relativeToTwentyTwenty < 1) {
+        result = QString("%2 times further than average vision%3").arg(relativeToDefault, 0, 'f', 3).arg(granularityFeedback);
+    } else if (relativeToDefault > 1.01f) {
         result = QString("20:%1 or %2 times further than average vision%3").arg(relativeToTwentyTwenty).arg(relativeToDefault, 0, 'f', 2).arg(granularityFeedback);
     } else if (relativeToDefault > 0.99f) {
         result = QString("20:20 or the default distance for average vision%1").arg(granularityFeedback);
@@ -309,19 +331,26 @@ QString LODManager::getLODFeedbackText() {
 }
 
 void LODManager::loadSettings() {
-    setDesktopLODTargetFPS(desktopLODDecreaseFPS.get());
-    Setting::Handle<bool> firstRun { Settings::firstRun, true };
+    auto desktopQuality = static_cast<WorldDetailQuality>(desktopWorldDetailQuality.get());
+    auto hmdQuality = static_cast<WorldDetailQuality>(hmdWorldDetailQuality.get());
+
+    Setting::Handle<bool> firstRun{ Settings::firstRun, true };
     if (qApp->property(hifi::properties::OCULUS_STORE).toBool() && firstRun.get()) {
-        const float LOD_HIGH_QUALITY_LEVEL = 0.75f;
-        setHMDLODTargetFPS(LOD_HIGH_QUALITY_LEVEL * LOD_MAX_LIKELY_HMD_FPS);
-    } else {
-        setHMDLODTargetFPS(hmdLODDecreaseFPS.get());
+        hmdQuality = WORLD_DETAIL_HIGH;
     }
+    
+    _automaticLODAdjust = automaticLODAdjust.get();
+    _lodHalfAngle = lodHalfAngle.get();
+
+    setWorldDetailQuality(desktopQuality, false);
+    setWorldDetailQuality(hmdQuality, true);
 }
 
 void LODManager::saveSettings() {
-    desktopLODDecreaseFPS.set(getDesktopLODTargetFPS());
-    hmdLODDecreaseFPS.set(getHMDLODTargetFPS());
+    automaticLODAdjust.set((bool)_automaticLODAdjust);
+    desktopWorldDetailQuality.set((int)_desktopWorldDetailQuality);
+    hmdWorldDetailQuality.set((int)_hmdWorldDetailQuality);
+    lodHalfAngle.set((float)_lodHalfAngle);
 }
 
 const float MIN_DECREASE_FPS = 0.5f;
@@ -376,56 +405,35 @@ float LODManager::getLODTargetFPS() const {
     }
 }
 
-void LODManager::setWorldDetailQuality(float quality) {
-    static const float MIN_FPS = 10;
-    static const float LOW = 0.25f;
-
-    bool isLowestValue = quality == LOW;
-    bool isHMDMode = qApp->isHMDMode();
-
-    float maxFPS = isHMDMode ? LOD_MAX_LIKELY_HMD_FPS : LOD_MAX_LIKELY_DESKTOP_FPS;
-    float desiredFPS = maxFPS;
-
-    if (!isLowestValue) {
-        float calculatedFPS = (maxFPS - (maxFPS * quality));
-        desiredFPS = calculatedFPS < MIN_FPS ? MIN_FPS : calculatedFPS;
-    }
-
+void LODManager::setWorldDetailQuality(WorldDetailQuality quality, bool isHMDMode) {
+    float desiredFPS = isHMDMode ? QUALITY_TO_FPS_HMD[quality] : QUALITY_TO_FPS_DESKTOP[quality];
     if (isHMDMode) {
+        _hmdWorldDetailQuality = quality;
         setHMDLODTargetFPS(desiredFPS);
     } else {
+        _desktopWorldDetailQuality = quality;
         setDesktopLODTargetFPS(desiredFPS);
     }
-
+}
+    
+void LODManager::setWorldDetailQuality(WorldDetailQuality quality) {
+    setWorldDetailQuality(quality, qApp->isHMDMode());
+    saveSettings();
     emit worldDetailQualityChanged();
 }
 
-float LODManager::getWorldDetailQuality() const {
-
-    static const float LOW = 0.25f;
-    static const float MEDIUM = 0.5f;
-    static const float HIGH = 0.75f;
-
-    bool inHMD = qApp->isHMDMode();
-
-    float targetFPS = 0.0f;
-    if (inHMD) {
-        targetFPS = getHMDLODTargetFPS();
-    } else {
-        targetFPS = getDesktopLODTargetFPS();
-    }
-    float maxFPS = inHMD ? LOD_MAX_LIKELY_HMD_FPS : LOD_MAX_LIKELY_DESKTOP_FPS;
-    float percentage = 1.0f - targetFPS / maxFPS;
-
-    if (percentage <= LOW) {
-        return LOW;
-    } else if (percentage <= MEDIUM) {
-        return MEDIUM;
-    }
-
-    return HIGH;
+WorldDetailQuality LODManager::getWorldDetailQuality() const {
+    return qApp->isHMDMode() ? _hmdWorldDetailQuality : _desktopWorldDetailQuality;
 }
 
+QScriptValue worldDetailQualityToScriptValue(QScriptEngine* engine, const WorldDetailQuality& worldDetailQuality) {
+    return worldDetailQuality;
+}
+
+void worldDetailQualityFromScriptValue(const QScriptValue& object, WorldDetailQuality& worldDetailQuality) {
+    worldDetailQuality = 
+        static_cast<WorldDetailQuality>(std::min(std::max(object.toInt32(), (int)WORLD_DETAIL_LOW), (int)WORLD_DETAIL_HIGH));
+}
 
 void LODManager::setLODQualityLevel(float quality) {
     _lodQualityLevel = quality;

@@ -24,7 +24,7 @@ class LineEntityItem : public EntityItem {
 
     // methods for getting/setting all properties of an entity
     virtual EntityItemProperties getProperties(const EntityPropertyFlags& desiredProperties, bool allowEmptyDesiredProperties) const override;
-    virtual bool setProperties(const EntityItemProperties& properties) override;
+    virtual bool setSubClassProperties(const EntityItemProperties& properties) override;
 
     virtual EntityPropertyFlags getEntityProperties(EncodeBitstreamParams& params) const override;
 
@@ -52,24 +52,22 @@ class LineEntityItem : public EntityItem {
     // never have a ray intersection pick a LineEntityItem.
     virtual bool supportsDetailedIntersection() const override { return true; }
     virtual bool findDetailedRayIntersection(const glm::vec3& origin, const glm::vec3& direction,
-                                             OctreeElementPointer& element, float& distance,
+                                             const glm::vec3& viewFrustumPos, OctreeElementPointer& element, float& distance,
                                              BoxFace& face, glm::vec3& surfaceNormal,
                                              QVariantMap& extraInfo,
                                              bool precisionPicking) const override { return false; }
     virtual bool findDetailedParabolaIntersection(const glm::vec3& origin, const glm::vec3& velocity,
-                                                  const glm::vec3& acceleration, OctreeElementPointer& element, float& parabolicDistance,
-                                                  BoxFace& face, glm::vec3& surfaceNormal,
+                                                  const glm::vec3& acceleration, const glm::vec3& viewFrustumPos, OctreeElementPointer& element,
+                                                  float& parabolicDistance, BoxFace& face, glm::vec3& surfaceNormal,
                                                   QVariantMap& extraInfo,
                                                   bool precisionPicking) const override { return false; }
-    bool pointsChanged() const { return _pointsChanged; }
-    void resetPointsChanged();
+
     virtual void debugDump() const override;
     static const int MAX_POINTS_PER_LINE;
 
  private:
     glm::u8vec3 _color;
     QVector<glm::vec3> _points;
-    bool _pointsChanged { true };
 };
 
 #endif // hifi_LineEntityItem_h

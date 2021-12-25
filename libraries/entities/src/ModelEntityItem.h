@@ -17,6 +17,7 @@
 #include <ThreadSafeValueCache.h>
 #include "AnimationPropertyGroup.h"
 
+#include "BlendshapeConstants.h"
 
 class ModelEntityItem : public EntityItem {
 public:
@@ -28,7 +29,7 @@ public:
 
     // methods for getting/setting all properties of an entity
     virtual EntityItemProperties getProperties(const EntityPropertyFlags& desiredProperties, bool allowEmptyDesiredProperties) const override;
-    virtual bool setProperties(const EntityItemProperties& properties) override;
+    virtual bool setSubClassProperties(const EntityItemProperties& properties) override;
 
     virtual EntityPropertyFlags getEntityProperties(EncodeBitstreamParams& params) const override;
 
@@ -70,13 +71,11 @@ public:
     virtual void setScaledDimensions(const glm::vec3& value) override;
 
     virtual const Transform getTransform(bool& success, int depth = 0) const override;
+    virtual const Transform getTransformWithOnlyLocalRotation(bool& success, int depth = 0) const override;
     virtual const Transform getTransform() const override;
 
     static const QString DEFAULT_COMPOUND_SHAPE_URL;
     QString getCompoundShapeURL() const;
-
-    // Returns the URL used for the collision shape
-    QString getCollisionShapeURL() const;
 
     // model related properties
     virtual void setModelURL(const QString& url);
@@ -84,35 +83,18 @@ public:
 
     // Animation related items...
     AnimationPropertyGroup getAnimationProperties() const;
-
-    // TODO: audit and remove unused Animation accessors
     bool hasAnimation() const;
     QString getAnimationURL() const;
-    virtual void setAnimationURL(const QString& url);
-
     void setAnimationCurrentFrame(float value);
-    void setAnimationIsPlaying(bool value);
-    void setAnimationFPS(float value); 
-
-    void setAnimationAllowTranslation(bool value);
+    float getAnimationCurrentFrame() const;
     bool getAnimationAllowTranslation() const;
-
-    void setAnimationLoop(bool loop);
-    bool getAnimationLoop() const;
-
-    void setAnimationHold(bool hold);
-    bool getAnimationHold() const;
+    bool isAnimatingSomething() const;
 
     void setRelayParentJoints(bool relayJoints);
     bool getRelayParentJoints() const;
 
     void setGroupCulled(bool value);
     bool getGroupCulled() const;
-
-    bool getAnimationIsPlaying() const;
-    float getAnimationCurrentFrame() const;
-    float getAnimationFPS() const;
-    bool isAnimatingSomething() const;
 
     static const QString DEFAULT_TEXTURES;
     const QString getTextures() const;
@@ -133,10 +115,17 @@ public:
     glm::vec3 getModelScale() const;
     void setModelScale(const glm::vec3& modelScale);
 
+    QString getBlendshapeCoefficients() const;
+    void setBlendshapeCoefficients(const QString& blendshapeCoefficients);
+    bool blendshapesChanged() const { return _blendshapesChanged; }
+    QVector<float> getBlendshapeCoefficientVector();
+
+    bool getUseOriginalPivot() const;
+    void setUseOriginalPivot(bool useOriginalPivot);
+
 private:
     void setAnimationSettings(const QString& value); // only called for old bitstream format
     bool applyNewAnimationProperties(AnimationPropertyGroup newProperties);
-    ShapeType computeTrueShapeType() const;
 
 protected:
     void resizeJointArrays(int newSize);
@@ -166,6 +155,8 @@ protected:
     QString _modelURL;
     bool _relayParentJoints;
     bool _groupCulled { false };
+    QVariantMap _blendshapeCoefficientsMap;
+    bool _useOriginalPivot { false };
 
     ThreadSafeValueCache<QString> _compoundShapeURL;
 
@@ -178,6 +169,9 @@ protected:
 private:
     uint64_t _lastAnimated{ 0 };
     float _currentFrame{ -1.0f };
+
+    QVector<float> _blendshapeCoefficientsVector;
+    bool _blendshapesChanged { false };
 };
 
 #endif // hifi_ModelEntityItem_h

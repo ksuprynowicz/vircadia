@@ -16,9 +16,21 @@ $(document).ready(function(){
 
   Settings.extraGroupsAtEnd = Settings.extraDomainGroupsAtEnd;
   Settings.extraGroupsAtIndex = Settings.extraDomainGroupsAtIndex;
-  var METAVERSE_URL = URLs.METAVERSE_URL;
+  var METAVERSE_URL = URLs.DEFAULT_METAVERSE_URL;
 
-  Settings.afterReloadActions = function() {
+  var SSL_PRIVATE_KEY_FILE_ID = 'ssl-private-key-file';
+  var SSL_PRIVATE_KEY_CONTENTS_ID = 'key-contents';
+  var SSL_PRIVATE_KEY_CONTENTS_NAME = 'oauth.key-contents';
+  var SSL_CERT_UPLOAD_ID = 'ssl-cert-button';
+  var SSL_CERT_FILE_ID = 'ssl-cert-file';
+  var SSL_CERT_FINGERPRINT_ID = 'cert-fingerprint';
+  var SSL_CERT_FINGERPRINT_SPAN_ID = 'cert-fingerprint-span-id';
+  var SSL_CERT_CONTENTS_ID = 'cert-contents';
+  var SSL_CERT_CONTENTS_NAME = 'oauth.cert-contents';
+  var SSL_PRIVATE_KEY_PATH = 'oauth.key';
+  var SSL_CERT_PATH = 'oauth.cert';
+
+  Settings.afterReloadActions = function(data) {
 
     getMetaverseUrl(function(metaverse_url) {
       METAVERSE_URL = metaverse_url;
@@ -28,9 +40,13 @@ $(document).ready(function(){
 
       // call our method to setup the place names table
       setupPlacesTable();
+      // hide the places table for now because we do not want that interacted with from the domain-server
+      $('#' + Settings.PLACES_TABLE_ID).hide();
 
       setupDomainNetworkingSettings();
       // setupDomainLabelSetting();
+
+      setupSettingsOAuth(data);
 
       setupSettingsBackup();
 
@@ -124,6 +140,48 @@ $(document).ready(function(){
       }
     }
 
+    if (formJSON["oauth"]) {
+      var private_key = formJSON["oauth"]["key-contents"];
+      var cert = formJSON["oauth"]["cert-contents"];
+      var oauthErrors = "";
+      if (private_key != undefined) {
+        var pattern = /-+BEGIN PRIVATE KEY-+[A-Za-z0-9+/\n=]*-+END PRIVATE KEY-+/m;
+        if (!pattern.test(private_key)) {
+          oauthErrors += "Private key must be in PEM format<BR/>";
+        }
+      }
+      if (cert != undefined) {
+        var pattern = /-+BEGIN CERTIFICATE-+[A-Za-z0-9+/\n=]*-+END CERTIFICATE-+/m;
+        if (!pattern.test(cert)) {
+          oauthErrors += "Certificate must be in PEM format<BR/>";
+        }
+      }
+      if ($('#oauth.panel').length) {
+        if (!$('input[name="oauth.client-id"]').val()) {
+          oauthErrors += "OAuth requires a client Id.<BR/>";
+        }
+        if (!$('input[name="oauth.provider"]').val()) {
+          oauthErrors += "OAuth requires a provider.<BR/>";
+        }
+        if (!$('input[name="oauth.hostname"]').val()) {
+          oauthErrors += "OAuth requires a hostname.<BR/>";
+        }
+        if (!$('input[name="' + SSL_PRIVATE_KEY_PATH + '"]').val() && !$('input[name="' + SSL_PRIVATE_KEY_CONTENTS_NAME + '"]').val()) {
+          oauthErrors += "OAuth requires an SSL Private Key.<BR/>";
+        }
+        if (!$('input[name="' + SSL_CERT_PATH + '"]').val() && !$('input[name="' + SSL_CERT_CONTENTS_NAME + '"]').val()) {
+          oauthErrors += "OAuth requires an SSL Certificate.<BR/>";
+        }
+        if (!$("table[name='oauth.admin-users'] tr.value-row").length &&
+            !$("table[name='oauth.admin-roles'] tr.value-row").length) {
+          oauthErrors += "OAuth must have at least one admin user or admin role.<BR/>";
+        }
+      }
+      if (oauthErrors) {
+        bootbox.alert({ "message": oauthErrors, "title": "OAuth Configuration Error" });
+        return false;
+      }
+    }
     postSettings(formJSON);
   };
 
@@ -221,7 +279,7 @@ $(document).ready(function(){
             swal({
               title: '',
               type: 'error',
-              text: "There was a problem retrieving domain information from High Fidelity API.",
+              text: "There was a problem retrieving domain information from the Metaverse API.",
               confirmButtonText: 'Try again',
               showCancelButton: true,
               closeOnConfirm: false
@@ -250,7 +308,7 @@ $(document).ready(function(){
 
     if (hasAccessToken) {
       el = "<p>";
-      el += "<span class='account-connected-header'>High Fidelity Account Connected</span>";
+      el += "<span class='account-connected-header'>Metaverse Account Connected</span>";
       el += "<button id='" + Settings.DISCONNECT_ACCOUNT_BTN_ID + "' class='btn'>Disconnect</button>";
       el += "</p>";
       el = $(el);
@@ -263,7 +321,7 @@ $(document).ready(function(){
       }
       buttonSetting.help = "";
       buttonSetting.classes = "btn-primary";
-      buttonSetting.button_label = "Connect High Fidelity Account";
+      buttonSetting.button_label = "Connect Metaverse Account";
       buttonSetting.html_id = Settings.CONNECT_ACCOUNT_BTN_ID;
 
       buttonSetting.href = METAVERSE_URL + "/user/tokens/new?for_domain_server=true";
@@ -307,7 +365,7 @@ $(document).ready(function(){
       confirmButtonText: "Create",
       closeOnConfirm: false,
       html: true
-    }, function(inputValue){
+    }, function (inputValue) {
       if (inputValue === false) {
         swal.close();
 
@@ -317,7 +375,7 @@ $(document).ready(function(){
         }
       } else {
         // we're going to change the alert to a new one with a spinner while we create this domain
-        showSpinnerAlert('Creating domain ID');
+        // showSpinnerAlert('Creating domain ID');
         createNewDomainID(inputValue, justConnected);
       }
     });
@@ -329,9 +387,14 @@ $(document).ready(function(){
       "label": label
     }
 
-    $.post("/api/domains", domainJSON, function(data){
+    $.post("/api/domains", domainJSON, function(data) {
+      if (data.status === "failure") {
+        failedToCreateDomainID(data, justConnected);
+        return;
+      }
+
       // we successfully created a domain ID, set it on that field
-      var domainID = data.domain.id;
+      var domainID = data.domain.domainId;
       console.log("Setting domain id to ", data, domainID);
       $(Settings.DOMAIN_ID_SELECTOR).val(domainID).change();
 
@@ -350,40 +413,50 @@ $(document).ready(function(){
         text: successText,
         html: true,
         confirmButtonText: 'Save'
-      }, function(){
+      }, function () {
         saveSettings();
       });
-    }, 'json').fail(function(){
+    }, 'json').fail(function (data) {
+      failedToCreateDomainID(data, justConnected);
+    });
+  }
+  
+  function failedToCreateDomainID(data, justConnected) {
+    var errorText = "There was a problem creating your new domain ID. Do you want to try again or";
 
-      var errorText = "There was a problem creating your new domain ID. Do you want to try again or";
+    if (data && data.status === "failure") {
+      errorText = "Error: " + data.error + "</br>Do you want to try again or";
+      console.log("Error: " + data.error);
+    } else {
+      console.log("Error: Failed to post to metaverse.");
+    }
 
-      if (justConnected) {
-        errorText += " just save your new access token?</br></br>You can always create a new domain ID later.";
+    if (justConnected) {
+      errorText += " just save your new access token?</br></br>You can always create a new domain ID later.";
+    } else {
+      errorText += " cancel?"
+    }
+
+    // we failed to create the new domain ID, show a sweet-alert that lets them try again or cancel
+    swal({
+      title: '',
+      type: 'error',
+      text: errorText,
+      html: true,
+      confirmButtonText: 'Try again',
+      showCancelButton: true,
+      closeOnConfirm: false
+    }, function (isConfirm) {
+      if (isConfirm) {
+        // they want to try creating a domain ID again
+        showDomainCreationAlert(justConnected);
       } else {
-        errorText += " cancel?"
-      }
-
-      // we failed to create the new domain ID, show a sweet-alert that lets them try again or cancel
-      swal({
-        title: '',
-        type: 'error',
-        text: errorText,
-        html: true,
-        confirmButtonText: 'Try again',
-        showCancelButton: true,
-        closeOnConfirm: false
-      }, function(isConfirm){
-        if (isConfirm) {
-          // they want to try creating a domain ID again
-          showDomainCreationAlert(justConnected);
-        } else {
-          // they want to cancel
-          if (justConnected) {
-            // since they just connected we need to save the access token here
-            saveSettings();
-          }
+        // they want to cancel
+        if (justConnected) {
+          // since they just connected we need to save the access token here
+          saveSettings();
         }
-      });
+      }
     });
   }
 
@@ -550,6 +623,9 @@ $(document).ready(function(){
       var address = DomainInfo.network_address === null ? '' : DomainInfo.network_address;
       var port = DomainInfo.network_port === null ? '' : DomainInfo.network_port;
       var modal_body = "<div class='form-group'>";
+      if (isCloudDomain()) {
+        modal_body += '<div style="color:red;font-weight: bold">Changing the network settings may actually break your domain.</div>';
+      }
       if (includeAddress) {
         modal_body += "<label class='control-label'>Address</label>";
         modal_body += "<input type='text' id='network-address-input' class='form-control' value='" + address + "'>";
@@ -652,9 +728,9 @@ $(document).ready(function(){
       name: 'places',
       label: 'Places',
       html_id: Settings.PLACES_TABLE_ID,
-      help: "The following places currently point to this domain.</br>To point places to this domain, "
-        + " go to the <a href='" + METAVERSE_URL + "/user/places'>My Places</a> "
-        + "page in your High Fidelity Metaverse account.",
+      help: "To point places to this domain, "
+        + " go to the <a href='" + METAVERSE_URL + "/user/places'>Places</a> "
+        + "page in your Metaverse account.",
       read_only: true,
       can_add_new_rows: false,
       columns: [
@@ -686,9 +762,10 @@ $(document).ready(function(){
     var errorEl = createDomainLoadingError("There was an error retrieving your places.");
     $("#" + Settings.PLACES_TABLE_ID).after(errorEl);
 
-    var temporaryPlaceButton = dynamicButton(Settings.GET_TEMPORARY_NAME_BTN_ID, 'Get a temporary place name');
-    temporaryPlaceButton.hide();
-    $('#' + Settings.PLACES_TABLE_ID).after(temporaryPlaceButton);
+    // DISABLE TEMP PLACE NAME BUTTON...
+    // var temporaryPlaceButton = dynamicButton(Settings.GET_TEMPORARY_NAME_BTN_ID, 'Get a temporary place name');
+    // temporaryPlaceButton.hide();
+    // $('#' + Settings.PLACES_TABLE_ID).after(temporaryPlaceButton);
     if (accessTokenIsSet()) {
       appendAddButtonToPlacesTable();
     }
@@ -794,7 +871,7 @@ $(document).ready(function(){
         }
         // Update label
         if (showOrHideLabel()) {
-          var label = data.domain.label;
+          var label = data.domain.name;
           label = label === null ? '' : label;
           $('#network-label').val(label);
         }
@@ -809,6 +886,10 @@ $(document).ready(function(){
           } else if (autoNetworkingSetting === 'ip') {
             $('#network-address-port input').val(port);
           }
+        }
+
+        if (getCurrentDomainIDType() === DOMAIN_ID_TYPE_TEMP) {
+          $(Settings.DOMAIN_ID_SELECTOR).siblings('span').append("  <b>This is a temporary domain and will not be visible in your domain list.</b>");
         }
 
         if (accessTokenIsSet()) {
@@ -896,7 +977,7 @@ $(document).ready(function(){
       var addRow = $("<tr> <td></td> <td></td> <td class='buttons'><a href='#' class='place-add glyphicon glyphicon-plus'></a></td> </tr>");
       addRow.find(".place-add").click(function(ev) {
         ev.preventDefault();
-        chooseFromHighFidelityPlaces(Settings.initialValues.metaverse.access_token, null, function(placeName, newDomainID) {
+        chooseFromMetaversePlaces(Settings.initialValues.metaverse.access_token, null, function(placeName, newDomainID) {
           if (newDomainID) {
             Settings.data.values.metaverse.id = newDomainID;
             var domainIDEl = $("[data-keypath='metaverse.id']");
@@ -934,18 +1015,18 @@ $(document).ready(function(){
 
           if (data.data.domains.length) {
             // setup a select box for the returned domains
-            modal_body = "<p>Choose the High Fidelity domain you want this domain-server to represent.<br/>This will set your domain ID on the settings page.</p>";
+            modal_body = "<p>Choose the Metaverse domain you want this domain-server to represent.<br/>This will set your domain ID on the settings page.</p>";
             domain_select = $("<select id='domain-name-select' class='form-control'></select>");
             _.each(data.data.domains, function(domain){
               var domainString = "";
 
-              if (domain.label) {
-                domainString += '"' + domain.label+ '" - ';
+              if (domain.name) {
+                domainString += '"' + domain.name+ '" - ';
               }
 
-              domainString += domain.id;
+              domainString += domain.domainId;
 
-              domain_select.append("<option value='" + domain.id + "'>" + domainString + "</option>");
+              domain_select.append("<option value='" + domain.domainId + "'>" + domainString + "</option>");
             })
             modal_body += "<label for='domain-name-select'>Domains</label>" + domain_select[0].outerHTML
             modal_buttons["success"] = {
@@ -963,7 +1044,7 @@ $(document).ready(function(){
                 window.open(METAVERSE_URL + "/user/domains", '_blank');
               }
             }
-            modal_body = "<p>You do not have any domains in your High Fidelity account." +
+            modal_body = "<p>You do not have any domains in your Metaverse account." +
               "<br/><br/>Go to your domains page to create a new one. Once your domain is created re-open this dialog to select it.</p>"
           }
 
@@ -975,7 +1056,7 @@ $(document).ready(function(){
           })
         },
         error: function() {
-          bootbox.alert("Failed to retrieve your domains from the High Fidelity Metaverse");
+          bootbox.alert("Failed to retrieve your domains from the Metaverse");
         },
         complete: function() {
           // remove the spinner from the choose button
@@ -986,7 +1067,7 @@ $(document).ready(function(){
 
       } else {
         bootbox.alert({
-          message: "You must have an access token to query your High Fidelity domains.<br><br>" +
+          message: "You must have an access token to query your Metaverse domains.<br><br>" +
           "Please follow the instructions on the settings page to add an access token.",
           title: "Access token required"
         })
@@ -1032,6 +1113,67 @@ $(document).ready(function(){
           }
         });
       }
+    });
+  }
+
+  function setupSettingsOAuth(data) {
+    // construct the HTML needed for the settings backup panel
+    var html = "<div class='form-group undefined'>";
+    html += "<label class='control-label'>SSL Private Key</label><BR/>";
+    html += "<label id='key-path-label'class='control-label'>Path</label>";
+    html += "<input id='" + SSL_PRIVATE_KEY_FILE_ID + "' type='file' accept='.key'/>";
+    html += "<input id='" + SSL_PRIVATE_KEY_CONTENTS_ID + "' name='" + SSL_PRIVATE_KEY_CONTENTS_NAME + "' type='hidden'/>";
+    html += "</div>";
+    html += "<div class='form-group undefined'>";
+    html += "<label class='control-label'>SSL Cert</label>";
+    html += "<div id='cert-fingerprint'><b>Fingerprint:</b><span id='" + SSL_CERT_FINGERPRINT_SPAN_ID + "'>" + data.values.oauth["cert-fingerprint"] + "</span></div>";
+    html += "<label id='cert-path-label' class='control-label'>Path</label>";
+    html += "<input id='" + SSL_CERT_FILE_ID + "' type='file' accept='.cer,.crt'/>";
+    html += "<input id='" + SSL_CERT_CONTENTS_ID + "' name='" + SSL_CERT_CONTENTS_NAME + "' type='hidden'/>";
+    html += "</div>";
+
+    $('#oauth-advanced').append(html);
+
+    $('#key-path-label').after($('[data-keypath="' + SSL_PRIVATE_KEY_PATH + '"]'));
+    $('#cert-path-label').after($('[data-keypath="' + SSL_CERT_PATH + '"]'));
+    $('[name="' + SSL_PRIVATE_KEY_PATH + '"]').val(data.values.oauth.key);
+    $('[name="' + SSL_CERT_PATH + '"]').val(data.values.oauth.cert);
+
+    $('body').on('change input propertychange', '#' + SSL_PRIVATE_KEY_FILE_ID, function(e){
+      var f = e.target.files[0];
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        $('#' + SSL_PRIVATE_KEY_CONTENTS_ID).val(reader.result);
+        $('#' + SSL_PRIVATE_KEY_CONTENTS_ID).attr('data-changed', true);
+        $('[name="' + SSL_PRIVATE_KEY_PATH + '"]').val('');
+        badgeForDifferences($('#' + SSL_PRIVATE_KEY_CONTENTS_ID));
+      }
+      reader.readAsText(f);
+    });
+    $('body').on('change input propertychange', '#' + SSL_CERT_FILE_ID, function(e){
+      var f = e.target.files[0];
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        $('#' + SSL_CERT_CONTENTS_ID).val(reader.result);
+        $('#' + SSL_CERT_CONTENTS_ID).attr('data-changed', true);
+        $('[name="' + SSL_CERT_PATH + '"]').val('');
+        $('#' + SSL_CERT_FINGERPRINT_SPAN_ID).text('');
+        badgeForDifferences($('#' + SSL_CERT_CONTENTS_ID));
+      }
+      reader.readAsText(f);
+    });
+
+    $('body').on('change input propertychange', '[name="' + SSL_PRIVATE_KEY_PATH + '"]', function(e){
+      $('#' + SSL_PRIVATE_KEY_FILE_ID).val('');
+      $('#' + SSL_PRIVATE_KEY_CONTENTS_ID).val('');
+      badgeForDifferences($('[name="' + SSL_PRIVATE_KEY_PATH + '"]').attr('data-changed', true));
+    });
+
+    $('body').on('change input propertychange', '[name="' + SSL_CERT_PATH + '"]', function(e){
+      $('#' + SSL_CERT_FILE_ID).val('');
+      $('#' + SSL_CERT_CONTENTS_ID).val('');
+      $('#' + SSL_CERT_FINGERPRINT_SPAN_ID).text('');
+      badgeForDifferences($('[name="' + SSL_CERT_PATH + '"]').attr('data-changed', true));
     });
   }
 

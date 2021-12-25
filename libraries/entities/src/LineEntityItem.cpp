@@ -24,7 +24,7 @@
 const int LineEntityItem::MAX_POINTS_PER_LINE = 70;
 
 EntityItemPointer LineEntityItem::factory(const EntityItemID& entityID, const EntityItemProperties& properties) {
-    EntityItemPointer entity(new LineEntityItem(entityID), [](EntityItem* ptr) { ptr->deleteLater(); });
+    std::shared_ptr<LineEntityItem> entity(new LineEntityItem(entityID), [](LineEntityItem* ptr) { ptr->deleteLater(); });
     entity->setProperties(properties);
     return entity;
 }
@@ -45,23 +45,12 @@ EntityItemProperties LineEntityItem::getProperties(const EntityPropertyFlags& de
     return properties;
 }
 
-bool LineEntityItem::setProperties(const EntityItemProperties& properties) {
+bool LineEntityItem::setSubClassProperties(const EntityItemProperties& properties) {
     bool somethingChanged = false;
-    somethingChanged = EntityItem::setProperties(properties); // set the properties in our base class
 
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(color, setColor);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(linePoints, setLinePoints);
 
-    if (somethingChanged) {
-        bool wantDebug = false;
-        if (wantDebug) {
-            uint64_t now = usecTimestampNow();
-            int elapsed = now - getLastEdited();
-            qCDebug(entities) << "LineEntityItem::setProperties() AFTER update... edited AGO=" << elapsed <<
-                "now=" << now << " getLastEdited()=" << getLastEdited();
-        }
-        setLastEdited(properties._lastEdited);
-    }
     return somethingChanged;
 }
 
@@ -76,9 +65,10 @@ bool LineEntityItem::appendPoint(const glm::vec3& point) {
         return false;
     }
     withWriteLock([&] {
+        _needsRenderUpdate = true;
         _points << point;
-        _pointsChanged = true;
     });
+
     return true;
 }
 
@@ -96,9 +86,10 @@ bool LineEntityItem::setLinePoints(const QVector<glm::vec3>& points) {
     }
 
     withWriteLock([&] {
+        _needsRenderUpdate = true;
         _points = points;
-        _pointsChanged = true;
     });
+
     return true;
 }
 
@@ -155,6 +146,7 @@ glm::u8vec3 LineEntityItem::getColor() const {
 
 void LineEntityItem::setColor(const glm::u8vec3& value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _color != value;
         _color = value;
     });
 }
@@ -165,10 +157,4 @@ QVector<glm::vec3> LineEntityItem::getLinePoints() const {
         result = _points;
     });
     return result;
-}
-
-void LineEntityItem::resetPointsChanged() { 
-    withWriteLock([&] {
-        _pointsChanged = false;
-    });
 }

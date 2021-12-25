@@ -1,6 +1,7 @@
 //
 //  Created by Bradley Austin Davis on 2015/05/12
 //  Copyright 2015 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -30,6 +31,7 @@
 #include <display-plugins/CompositorHelper.h>
 #include <ui-plugins/PluginContainer.h>
 #include <gl/OffscreenGLCanvas.h>
+#include <ThreadHelpers.h>
 
 #include "OpenVrHelpers.h"
 
@@ -396,6 +398,13 @@ void OpenVrDisplayPlugin::init() {
     _lastGoodHMDPose.m[2][2] = 1.0f;
     _lastGoodHMDPose.m[2][3] = 0.0f;
 
+    // Different HMDs end up showing the squeezed-vision egg as different sizes.  These values
+    // attempt to make them appear the same.
+    _visionSqueezeDeviceLowX = 0.8f;
+    _visionSqueezeDeviceHighX = 0.98f;
+    _visionSqueezeDeviceLowY = 0.8f;
+    _visionSqueezeDeviceHighY = 0.9f;
+
     emit deviceConnected(getName());
 }
 
@@ -486,6 +495,7 @@ bool OpenVrDisplayPlugin::internalActivate() {
                 _submitCanvas->doneCurrent();
             });
         }
+        connect(_submitThread.get(), &QThread::started, [] { setThreadName("OpenVR Submit Thread"); });
         _submitCanvas->moveToThread(_submitThread.get());
     }
 
@@ -518,7 +528,7 @@ void OpenVrDisplayPlugin::customizeContext() {
                                                                               _renderTargetSize.y, gpu::Texture::SINGLE_MIP,
                                                                               gpu::Sampler(gpu::Sampler::FILTER_MIN_MAG_POINT));
             }
-            _compositeInfos[i].textureID = getBackend()->getTextureID(_compositeInfos[i].texture);
+            _compositeInfos[i].textureID = getGLBackend()->getTextureID(_compositeInfos[i].texture);
         }
         _submitThread->_canvas = _submitCanvas;
         _submitThread->start(QThread::HighPriority);
@@ -639,7 +649,7 @@ void OpenVrDisplayPlugin::compositeLayers() {
         glFlush();
 
         if (!newComposite.textureID) {
-            newComposite.textureID = getBackend()->getTextureID(newComposite.texture);
+            newComposite.textureID = getGLBackend()->getTextureID(newComposite.texture);
         }
         withPresentThreadLock([&] { _submitThread->update(newComposite); });
     }
@@ -651,7 +661,12 @@ void OpenVrDisplayPlugin::hmdPresent() {
     if (_threadedSubmit) {
         _submitThread->waitForPresent();
     } else {
-        GLuint glTexId = getBackend()->getTextureID(_compositeFramebuffer->getRenderBuffer(0));
+
+        _visionSqueezeParametersBuffer.edit<VisionSqueezeParameters>()._leftProjection = _eyeProjections[0];
+        _visionSqueezeParametersBuffer.edit<VisionSqueezeParameters>()._rightProjection = _eyeProjections[1];
+        _visionSqueezeParametersBuffer.edit<VisionSqueezeParameters>()._hmdSensorMatrix = _currentPresentFrameInfo.presentPose;
+
+        GLuint glTexId = getGLBackend()->getTextureID(_compositeFramebuffer->getRenderBuffer(0));
         vr::Texture_t vrTexture{ (void*)(uintptr_t)glTexId, vr::TextureType_OpenGL, vr::ColorSpace_Auto };
         vr::VRCompositor()->Submit(vr::Eye_Left, &vrTexture, &OPENVR_TEXTURE_BOUNDS_LEFT);
         vr::VRCompositor()->Submit(vr::Eye_Right, &vrTexture, &OPENVR_TEXTURE_BOUNDS_RIGHT);
@@ -726,28 +741,36 @@ int OpenVrDisplayPlugin::getRequiredThreadCount() const {
 }
 
 QString OpenVrDisplayPlugin::getPreferredAudioInDevice() const {
-    QString device = getVrSettingString(vr::k_pch_audio_Section, vr::k_pch_audio_OnPlaybackDevice_String);
+    QString device = getVrSettingString(vr::k_pch_audio_Section, vr::k_pch_audio_RecordingDeviceOverride_String);
+    // FIXME: Address Linux.
+#ifdef Q_OS_WIN
     if (!device.isEmpty()) {
         static const WCHAR INIT = 0;
         size_t size = device.size() + 1;
         std::vector<WCHAR> deviceW;
         deviceW.assign(size, INIT);
         device.toWCharArray(deviceW.data());
+        // FIXME: This may not be necessary if vr::k_pch_audio_RecordingDeviceOverride_StringName is used above.
         device = AudioClient::getWinDeviceName(deviceW.data());
     }
+#endif
     return device;
 }
 
 QString OpenVrDisplayPlugin::getPreferredAudioOutDevice() const {
-    QString device = getVrSettingString(vr::k_pch_audio_Section, vr::k_pch_audio_OnRecordDevice_String);
+    QString device = getVrSettingString(vr::k_pch_audio_Section, vr::k_pch_audio_PlaybackDeviceOverride_String);
+    // FIXME: Address Linux.
+#ifdef Q_OS_WIN
     if (!device.isEmpty()) {
         static const WCHAR INIT = 0;
         size_t size = device.size() + 1;
         std::vector<WCHAR> deviceW;
         deviceW.assign(size, INIT);
         device.toWCharArray(deviceW.data());
+        // FIXME: This may not be necessary if vr::k_pch_audio_PlaybackDeviceOverride_StringName is used above.
         device = AudioClient::getWinDeviceName(deviceW.data());
     }
+#endif
     return device;
 }
 
@@ -828,4 +851,15 @@ DisplayPlugin::StencilMaskMeshOperator OpenVrDisplayPlugin::getStencilMaskMeshOp
         }
     }
     return nullptr;
+}
+
+void OpenVrDisplayPlugin::updateParameters(float visionSqueezeX, float visionSqueezeY, float visionSqueezeTransition,
+                                           int visionSqueezePerEye, float visionSqueezeGroundPlaneY,
+                                           float visionSqueezeSpotlightSize) {
+    _visionSqueezeX = visionSqueezeX;
+    _visionSqueezeY = visionSqueezeY;
+    _visionSqueezeTransition = visionSqueezeTransition;
+    _visionSqueezePerEye = visionSqueezePerEye;
+    _visionSqueezeGroundPlaneY = visionSqueezeGroundPlaneY;
+    _visionSqueezeSpotlightSize = visionSqueezeSpotlightSize;
 }

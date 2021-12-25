@@ -18,7 +18,7 @@
 
 #include "DependencyManager.h"
 
-/**jsdoc
+/*@jsdoc
  * The <code>Paths</code> API provides absolute paths to the scripts and resources directories.
  *
  * @namespace Paths
@@ -58,7 +58,7 @@ public:
     static QString generateTemporaryDir();
     static bool deleteMyTemporaryDir(QString dirName);
 
-    static int removeTemporaryApplicationDirs(QString appName = QString::null);
+    static int removeTemporaryApplicationDirs(QString appName = QString());
 
     static Qt::CaseSensitivity getFSCaseSensitivity();
     static QString stripFilename(const QUrl& url);

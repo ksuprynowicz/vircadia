@@ -7,10 +7,18 @@ setup_hifi_library(Gui Network Script)
 
 if (WIN32)
     target_link_libraries(${TARGET_NAME} Wbemuuid.lib)
+    add_compile_definitions(_USE_MATH_DEFINES)
 endif()
 
 if (ANDROID)
     target_link_libraries(${TARGET_NAME} android)
+endif()
+
+if (APPLE)
+    find_library(FRAMEWORK_IOKIT IOKit)
+    find_library(CORE_FOUNDATION CoreFoundation)
+    find_library(OpenGL OpenGL)
+    target_link_libraries(${TARGET_NAME} ${FRAMEWORK_IOKIT} ${CORE_FOUNDATION} ${OpenGL})
 endif()
 
 target_zlib()

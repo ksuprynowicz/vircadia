@@ -340,8 +340,8 @@ calculateHandSizeRatio = function() {
     return handSizeRatio;
 }
 
-clamp = function(val, min, max){
-     return Math.max(min, Math.min(max, val))
+hifiClamp = function(val, min, max) {
+     return Math.max(min, Math.min(max, val));
 }
 
 // flattens an array of arrays into a single array
@@ -502,3 +502,54 @@ getMainTabletIDs = function () {
     }
     return tabletIDs;
 };
+
+// returns 1 if A is greater, 0 if equal, -1 if A is lesser
+semanticVersionCompare = function(versionA, versionB) {
+    var versionAParts = versionA.split('.');
+    var versionBParts = versionB.split('.');
+
+    // make sure each version has 3 parts
+    var partsLength = versionAParts.length;
+    while (partsLength < 3) {
+        partsLength = versionAParts.push(0);
+    }
+
+    partsLength = versionBParts.length;
+    while (partsLength < 3) {
+        partsLength = versionBParts.push(0);
+    }
+
+    for (var i = 0; i < 3; ++i) {
+        // We're detecting if there's tags, indicating a pre-release OR it's obsolete.
+        var versionAPartHasTag = (versionAParts[i].indexOf('-') !== -1);
+        var versionBPartHasTag = (versionBParts[i].indexOf('-') !== -1);
+
+        if (versionAPartHasTag || versionBPartHasTag) {
+            // In semantic versioning, if version A has a tag and B does not, B is a higher version.
+            if (versionAPartHasTag < versionBPartHasTag) {
+                return 1;
+            } else if (versionAPartHasTag > versionBPartHasTag) {
+                return -1;
+            } else {
+                // They both have tags
+                var splitA = versionAParts[i].split('-')[0];
+                var splitB = versionBParts[i].split('-')[0];
+                
+                if (splitA < splitB) {
+                    return -1;
+                } else if (splitA > splitB) {
+                    return 1;
+                }
+            }
+        } else { // Else, they're both numbers so compare the strings as if they were.
+            if (versionAParts[i] < versionBParts[i]) {
+                return -1;
+            } else if (versionAParts[i] > versionBParts[i]) {
+                return 1;
+            }
+        }
+    }
+    
+    // They're both equal!
+    return 0;
+}

@@ -32,7 +32,7 @@ const float LightEntityItem::DEFAULT_CUTOFF = PI / 2.0f;
 bool LightEntityItem::_lightsArePickable = false;
 
 EntityItemPointer LightEntityItem::factory(const EntityItemID& entityID, const EntityItemProperties& properties) {
-    EntityItemPointer entity(new LightEntityItem(entityID), [](EntityItem* ptr) { ptr->deleteLater(); });
+    std::shared_ptr<LightEntityItem> entity(new LightEntityItem(entityID), [](LightEntityItem* ptr) { ptr->deleteLater(); });
     entity->setProperties(properties);
     return entity;
 }
@@ -55,21 +55,6 @@ void LightEntityItem::setUnscaledDimensions(const glm::vec3& value) {
     }
 }
 
-void LightEntityItem::locationChanged(bool tellPhysics, bool tellChildren) {
-    EntityItem::locationChanged(tellPhysics, tellChildren);
-    withWriteLock([&] {
-        _lightPropertiesChanged = true;
-    });
-}
-
-void LightEntityItem::dimensionsChanged() {
-    EntityItem::dimensionsChanged();
-    withWriteLock([&] {
-        _lightPropertiesChanged = true;
-    });
-}
-
-
 EntityItemProperties LightEntityItem::getProperties(const EntityPropertyFlags& desiredProperties, bool allowEmptyDesiredProperties) const {
     EntityItemProperties properties = EntityItem::getProperties(desiredProperties, allowEmptyDesiredProperties); // get the properties from our base class
 
@@ -85,17 +70,22 @@ EntityItemProperties LightEntityItem::getProperties(const EntityPropertyFlags& d
 
 void LightEntityItem::setFalloffRadius(float value) {
     value = glm::max(value, 0.0f);
-    if (value == getFalloffRadius()) {
-        return;
-    }
+
     withWriteLock([&] {
+        _needsRenderUpdate |= _falloffRadius != value;
         _falloffRadius = value;
-        _lightPropertiesChanged = true;
     });
 }
 
 void LightEntityItem::setIsSpotlight(bool value) {
-    if (value == getIsSpotlight()) {
+    bool needsRenderUpdate;
+    withWriteLock([&] {
+        needsRenderUpdate = value != _isSpotlight;
+        _needsRenderUpdate |= needsRenderUpdate;
+        _isSpotlight = value;
+    });
+
+    if (!needsRenderUpdate) {
         return;
     }
 
@@ -109,53 +99,35 @@ void LightEntityItem::setIsSpotlight(bool value) {
         newDimensions = glm::vec3(glm::compMax(dimensions));
     }
 
-    withWriteLock([&] {
-        _isSpotlight = value;
-        _lightPropertiesChanged = true;
-    });
     setScaledDimensions(newDimensions);
 }
 
 void LightEntityItem::setCutoff(float value) {
     value = glm::clamp(value, MIN_CUTOFF, MAX_CUTOFF);
-    if (value == getCutoff()) {
+    bool needsRenderUpdate;
+    bool spotlight;
+    withWriteLock([&] {
+        needsRenderUpdate = value != _cutoff;
+        _needsRenderUpdate |= needsRenderUpdate;
+        _cutoff = value;
+        spotlight = _isSpotlight;
+    });
+
+    if (!needsRenderUpdate) {
         return;
     }
 
-    withWriteLock([&] {
-        _cutoff = value;
-    });
-
-    if (getIsSpotlight()) {
+    if (spotlight) {
         // If we are a spotlight, adjusting the cutoff will affect the area we encapsulate,
         // so update the dimensions to reflect this.
         const float length = getScaledDimensions().z;
         const float width = length * glm::sin(glm::radians(_cutoff));
         setScaledDimensions(glm::vec3(width, width, length));
     }
-    
-    withWriteLock([&] {
-        _lightPropertiesChanged = true;
-    });
-}
-
-bool LightEntityItem::setProperties(const EntityItemProperties& properties) {
-    bool somethingChanged = EntityItem::setProperties(properties); // set the properties in our base class
-    if (somethingChanged) {
-        bool wantDebug = false;
-        if (wantDebug) {
-            uint64_t now = usecTimestampNow();
-            int elapsed = now - getLastEdited();
-            qCDebug(entities) << "LightEntityItem::setProperties() AFTER update... edited AGO=" << elapsed <<
-                "now=" << now << " getLastEdited()=" << getLastEdited();
-        }
-        setLastEdited(properties.getLastEdited());
-    }
-    return somethingChanged;
 }
 
 bool LightEntityItem::setSubClassProperties(const EntityItemProperties& properties) {
-    bool somethingChanged = EntityItem::setSubClassProperties(properties); // set the properties in our base class
+    bool somethingChanged = false;
 
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(color, setColor);
     SET_ENTITY_PROPERTY_FROM_PROPERTIES(isSpotlight, setIsSpotlight);
@@ -166,7 +138,6 @@ bool LightEntityItem::setSubClassProperties(const EntityItemProperties& properti
 
     return somethingChanged;
 }
-
 
 int LightEntityItem::readEntitySubclassDataFromBuffer(const unsigned char* data, int bytesLeftToRead, 
                                                 ReadBitstreamToTreeParams& args,
@@ -223,8 +194,8 @@ glm::u8vec3 LightEntityItem::getColor() const {
 
 void LightEntityItem::setColor(const glm::u8vec3& value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _color != value;
         _color = value;
-        _lightPropertiesChanged = true;
     });
 }
 
@@ -246,8 +217,8 @@ float LightEntityItem::getIntensity() const {
 
 void LightEntityItem::setIntensity(float value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _intensity != value;
         _intensity = value;
-        _lightPropertiesChanged = true;
     });
 }
 
@@ -269,8 +240,8 @@ float LightEntityItem::getExponent() const {
 
 void LightEntityItem::setExponent(float value) {
     withWriteLock([&] {
+        _needsRenderUpdate |= _exponent != value;
         _exponent = value;
-        _lightPropertiesChanged = true;
     });
 }
 
@@ -282,12 +253,8 @@ float LightEntityItem::getCutoff() const {
     return result;
 }
 
-void LightEntityItem::resetLightPropertiesChanged() {
-    withWriteLock([&] { _lightPropertiesChanged = false; });
-}
-
 bool LightEntityItem::findDetailedRayIntersection(const glm::vec3& origin, const glm::vec3& direction,
-                        OctreeElementPointer& element, float& distance,
+                        const glm::vec3& viewFrustumPos, OctreeElementPointer& element, float& distance,
                         BoxFace& face, glm::vec3& surfaceNormal,
                         QVariantMap& extraInfo, bool precisionPicking) const {
 
@@ -300,8 +267,8 @@ bool LightEntityItem::findDetailedRayIntersection(const glm::vec3& origin, const
 }
 
 bool LightEntityItem::findDetailedParabolaIntersection(const glm::vec3& origin, const glm::vec3& velocity,
-                        const glm::vec3& acceleration, OctreeElementPointer& element, float& parabolicDistance,
-                        BoxFace& face, glm::vec3& surfaceNormal,
+                        const glm::vec3& acceleration, const glm::vec3& viewFrustumPos, OctreeElementPointer& element,
+                        float& parabolicDistance, BoxFace& face, glm::vec3& surfaceNormal,
                         QVariantMap& extraInfo, bool precisionPicking) const {
     // TODO: consider if this is really what we want to do. We've made it so that "lights are pickable" is a global state
     // this is probably reasonable since there's typically only one tree you'd be picking on at a time. Technically we could

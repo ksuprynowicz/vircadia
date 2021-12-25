@@ -90,11 +90,12 @@ private:
 /// Wrapper to expose resources to JS/QML
 class ScriptableResource : public QObject {
 
-    /**jsdoc
-     * Information about a cached resource. Created by {@link AnimationCache.prefetch}, {@link ModelCache.prefetch},
-     * {@link SoundCache.prefetch}, or {@link TextureCache.prefetch}.
+    /*@jsdoc
+     * Information about a cached resource. Created by {@link AnimationCache.prefetch}, {@link MaterialCache.prefetch},
+     * {@link ModelCache.prefetch}, {@link SoundCache.prefetch}, or {@link TextureCache.prefetch}.
      *
      * @class ResourceObject
+     * @hideconstructor
      *
      * @hifi-interface
      * @hifi-client-entity
@@ -111,7 +112,7 @@ class ScriptableResource : public QObject {
 
 public:
 
-    /**jsdoc
+    /*@jsdoc
      * The loading state of a resource.
      * @typedef {object} Resource.State
      * @property {number} QUEUED - The resource is queued up, waiting to be loaded.
@@ -132,7 +133,7 @@ public:
     ScriptableResource(const QUrl& url);
     virtual ~ScriptableResource() = default;
 
-    /**jsdoc
+    /*@jsdoc
       * Releases the resource.
       * @function ResourceObject#release
       */
@@ -147,7 +148,7 @@ public:
 
 signals:
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the resource's download progress changes.
      * @function ResourceObject#progressChanged
      * @param {number} bytesReceived - Bytes downloaded so far.
@@ -156,7 +157,7 @@ signals:
      */
     void progressChanged(uint64_t bytesReceived, uint64_t bytesTotal);
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the resource's loading state changes.
      * @function ResourceObject#stateChanged
      * @param {Resource.State} state - New state.
@@ -211,7 +212,7 @@ public:
 
     static void setRequestLimit(uint32_t limit);
     static uint32_t getRequestLimit() { return DependencyManager::get<ResourceCacheSharedItems>()->getRequestLimit(); }
-    
+
     void setUnusedResourceCacheSize(qint64 unusedResourcesMaxSize);
     qint64 getUnusedResourceCacheSize() const { return _unusedResourcesMaxSize; }
 
@@ -221,7 +222,7 @@ public:
 
     ResourceCache(QObject* parent = nullptr);
     virtual ~ResourceCache();
-    
+
     void refreshAll();
     void clearUnusedResources();
 
@@ -283,7 +284,7 @@ private:
     void resetResourceCounters();
 
     // Resources
-    QHash<QUrl, QHash<size_t, QWeakPointer<Resource>>> _resources;
+    QHash<QUrl, QMultiHash<size_t, QWeakPointer<Resource>>> _resources;
     QReadWriteLock _resourcesLock { QReadWriteLock::Recursive };
     int _lastLRUKey = 0;
 
@@ -303,10 +304,10 @@ private:
 class ScriptableResourceCache : public QObject {
     Q_OBJECT
 
-    // JSDoc 3.5.5 doesn't augment name spaces with @property definitions so the following properties JSDoc is copied to the 
+    // JSDoc 3.5.5 doesn't augment name spaces with @property definitions so the following properties JSDoc is copied to the
     // different exposed cache classes.
 
-    /**jsdoc
+    /*@jsdoc
      * @property {number} numTotal - Total number of total resources. <em>Read-only.</em>
      * @property {number} numCached - Total number of cached resource. <em>Read-only.</em>
      * @property {number} sizeTotal - Size in bytes of all resources. <em>Read-only.</em>
@@ -317,40 +318,49 @@ class ScriptableResourceCache : public QObject {
     Q_PROPERTY(size_t sizeTotal READ getSizeTotalResources NOTIFY dirty)
     Q_PROPERTY(size_t sizeCached READ getSizeCachedResources NOTIFY dirty)
 
+    /*@jsdoc
+     * @property {number} numGlobalQueriesPending - Total number of global queries pending (across all resource cache managers).
+     *     <em>Read-only.</em>
+     * @property {number} numGlobalQueriesLoading - Total number of global queries loading (across all resource cache managers).
+     *     <em>Read-only.</em>
+     */
+    Q_PROPERTY(size_t numGlobalQueriesPending READ getNumGlobalQueriesPending NOTIFY dirty)
+    Q_PROPERTY(size_t numGlobalQueriesLoading READ getNumGlobalQueriesLoading NOTIFY dirty)
+
 public:
     ScriptableResourceCache(QSharedPointer<ResourceCache> resourceCache);
 
-    /**jsdoc
+    /*@jsdoc
      * Gets the URLs of all resources in the cache.
      * @function ResourceCache.getResourceList
      * @returns {string[]} The URLs of all resources in the cache.
      * @example <caption>Report cached resources.</caption>
-     * // Replace AnimationCache with ModelCache, SoundCache, or TextureCache as appropriate.
+     * // Replace AnimationCache with MaterialCache, ModelCache, SoundCache, or TextureCache as appropriate.
      *
      * var cachedResources = AnimationCache.getResourceList();
      * print("Cached resources: " + JSON.stringify(cachedResources));
      */
     Q_INVOKABLE QVariantList getResourceList();
 
-    /**jsdoc
+    /*@jsdoc
      * @function ResourceCache.updateTotalSize
      * @param {number} deltaSize - Delta size.
      * @deprecated This function is deprecated and will be removed.
      */
     Q_INVOKABLE void updateTotalSize(const qint64& deltaSize);
 
-    /**jsdoc
+    /*@jsdoc
      * Prefetches a resource.
      * @function ResourceCache.prefetch
      * @param {string} url - The URL of the resource to prefetch.
      * @returns {ResourceObject} A resource object.
      * @example <caption>Prefetch a resource and wait until it has loaded.</caption>
-     * // Replace AnimationCache with ModelCache, SoundCache, or TextureCache as appropriate.
+     * // Replace AnimationCache with MaterialCache, ModelCache, SoundCache, or TextureCache as appropriate.
      * // TextureCache has its own version of this function.
-     * 
-     * var resourceURL = "https://s3-us-west-1.amazonaws.com/hifi-content/clement/production/animations/sitting_idle.fbx";
+     *
+     * var resourceURL = "https://cdn-1.vircadia.com/eu-c-1/vircadia-public/clement/production/animations/sitting_idle.fbx";
      * var resourceObject = AnimationCache.prefetch(resourceURL);
-     * 
+     *
      * function checkIfResourceLoaded(state) {
      *     if (state === Resource.State.FINISHED) {
      *         print("Resource loaded and ready.");
@@ -358,11 +368,11 @@ public:
      *         print("Resource not loaded.");
      *     }
      * }
-     * 
+     *
      * // Resource may have already been loaded.
      * print("Resource state: " + resourceObject.state);
      * checkIfResourceLoaded(resourceObject.state);
-     * 
+     *
      * // Resource may still be loading.
      * resourceObject.stateChanged.connect(function (state) {
      *     print("Resource state changed to: " + state);
@@ -370,13 +380,13 @@ public:
      * });
      */
     Q_INVOKABLE ScriptableResource* prefetch(const QUrl& url) { return prefetch(url, nullptr, std::numeric_limits<size_t>::max()); }
-    
+
     // FIXME: This function variation shouldn't be in the API.
     Q_INVOKABLE ScriptableResource* prefetch(const QUrl& url, void* extra, size_t extraHash);
 
 signals:
 
-    /**jsdoc
+    /*@jsdoc
      * Triggered when the cache content has changed.
      * @function ResourceCache.dirty
      * @returns {Signal}
@@ -390,6 +400,9 @@ private:
     size_t getSizeTotalResources() const { return _resourceCache->getSizeTotalResources(); }
     size_t getNumCachedResources() const { return _resourceCache->getNumCachedResources(); }
     size_t getSizeCachedResources() const { return _resourceCache->getSizeCachedResources(); }
+
+    size_t getNumGlobalQueriesPending() const { return ResourceCache::getPendingRequestCount(); }
+    size_t getNumGlobalQueriesLoading() const { return ResourceCache::getLoadingRequestCount(); }
 };
 
 /// Base class for resources.
@@ -430,7 +443,7 @@ public:
 
     /// For loading resources, returns the number of bytes received.
     qint64 getBytesReceived() const { return _bytesReceived; }
-    
+
     /// For loading resources, returns the number of total bytes (<= zero if unknown).
     qint64 getBytesTotal() const { return _bytesTotal; }
 
@@ -439,7 +452,7 @@ public:
 
     /// For loading resources, returns the load progress.
     float getProgress() const { return (_bytesTotal <= 0) ? 0.0f : (float)_bytesReceived / _bytesTotal; }
-    
+
     /// Refreshes the resource.
     virtual void refresh();
 
@@ -448,7 +461,7 @@ public:
     void setCache(ResourceCache* cache) { _cache = cache; }
 
     virtual void deleter() { allReferencesCleared(); }
-    
+
     const QUrl& getURL() const { return _url; }
 
     unsigned int getDownloadAttempts() { return _attempts; }
@@ -544,15 +557,15 @@ public slots:
 private:
     friend class ResourceCache;
     friend class ScriptableResource;
-    
+
     void setLRUKey(int lruKey) { _lruKey = lruKey; }
-    
+
     void retry();
     void reinsert();
 
     bool isInScript() const { return _isInScript; }
     void setInScript(bool isInScript) { _isInScript = isInScript; }
-    
+
     int _lruKey{ 0 };
     QTimer* _replyTimer{ nullptr };
     unsigned int _attempts{ 0 };

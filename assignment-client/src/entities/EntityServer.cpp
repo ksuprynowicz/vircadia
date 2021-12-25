@@ -17,11 +17,12 @@
 #include <QJsonDocument>
 
 #include <EntityTree.h>
-#include <SimpleEntitySimulation.h>
 #include <ResourceCache.h>
 #include <ScriptCache.h>
+#include <plugins/PluginManager.h>
 #include <EntityEditFilters.h>
 #include <NetworkingConstants.h>
+#include <MetaverseAPI.h>
 #include <hfm/ModelFormatRegistry.h>
 
 #include "../AssignmentDynamicFactory.h"
@@ -36,12 +37,13 @@ const char* LOCAL_MODELS_PERSIST_FILE = "resources/models.svo";
 
 EntityServer::EntityServer(ReceivedMessage& message) :
     OctreeServer(message),
-    _entitySimulation(NULL),
+    _entitySimulation(nullptr),
     _dynamicDomainVerificationTimer(this)
 {
     DependencyManager::set<ResourceManager>();
     DependencyManager::set<ResourceCacheSharedItems>();
     DependencyManager::set<ScriptCache>();
+    DependencyManager::set<PluginManager>()->instantiate();
 
     DependencyManager::registerInheritance<EntityDynamicFactoryInterface, AssignmentDynamicFactory>();
     DependencyManager::set<AssignmentDynamicFactory>();
@@ -57,8 +59,7 @@ EntityServer::EntityServer(ReceivedMessage& message) :
         PacketType::ChallengeOwnership,
         PacketType::ChallengeOwnershipRequest,
         PacketType::ChallengeOwnershipReply },
-        this,
-        "handleEntityPacket");
+        PacketReceiver::makeSourcedListenerReference<EntityServer>(this, &EntityServer::handleEntityPacket));
 
     connect(&_dynamicDomainVerificationTimer, &QTimer::timeout, this, &EntityServer::startDynamicDomainVerification);
     _dynamicDomainVerificationTimer.setSingleShot(true);
@@ -93,7 +94,7 @@ std::unique_ptr<OctreeQueryNode> EntityServer::createOctreeQueryNode() {
 }
 
 OctreePointer EntityServer::createTree() {
-    EntityTreePointer tree = EntityTreePointer(new EntityTree(true));
+    EntityTreePointer tree = std::make_shared<EntityTree>(true);
     tree->createRootElement();
     tree->addNewlyCreatedHook(this);
     if (!_entitySimulation) {
@@ -368,16 +369,18 @@ void EntityServer::entityFilterAdded(EntityItemID id, bool success) {
 
 void EntityServer::nodeAdded(SharedNodePointer node) {
     EntityTreePointer tree = std::static_pointer_cast<EntityTree>(_tree);
-    tree->knowAvatarID(node->getUUID());
+    if (tree) {
+        tree->knowAvatarID(node->getUUID());
+    }
     OctreeServer::nodeAdded(node);
 }
 
 void EntityServer::nodeKilled(SharedNodePointer node) {
     EntityTreePointer tree = std::static_pointer_cast<EntityTree>(_tree);
-    tree->withWriteLock([&] {
+    if (tree) {
         tree->deleteDescendantsOfAvatar(node->getUUID());
-    });
-    tree->forgetAvatarID(node->getUUID());
+        tree->forgetAvatarID(node->getUUID());
+    }
     OctreeServer::nodeKilled(node);
 }
 

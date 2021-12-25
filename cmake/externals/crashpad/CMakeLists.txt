@@ -6,7 +6,7 @@ string(TOUPPER ${EXTERNAL_NAME} EXTERNAL_NAME_UPPER)
 if (WIN32)
     ExternalProject_Add(
       ${EXTERNAL_NAME}
-      URL https://public.highfidelity.com/dependencies/crashpad_062317.1.zip
+      URL "${EXTERNAL_BUILD_ASSETS}/dependencies/crashpad_062317.1.zip"
       URL_MD5 9c84b77f5f23daf939da1371825ed2b1
       CONFIGURE_COMMAND ""
       BUILD_COMMAND ""
@@ -25,8 +25,27 @@ if (WIN32)
 elseif (APPLE)
   ExternalProject_Add(
     ${EXTERNAL_NAME}
-    URL https://public.highfidelity.com/dependencies/crashpad_mac_070318.zip
+    URL "${EXTERNAL_BUILD_ASSETS}/dependencies/crashpad_mac_070318.zip"
     URL_MD5 ba1501dc163591ac2d1be74946967e2a
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ""
+    INSTALL_COMMAND ""
+    LOG_DOWNLOAD 1
+  )
+
+  ExternalProject_Get_Property(${EXTERNAL_NAME} SOURCE_DIR)
+
+  set(BIN_RELEASE_PATH "${SOURCE_DIR}/out/Release")
+  set(BIN_EXT "")
+  set(LIB_RELEASE_PATH "${SOURCE_DIR}/out/Release/lib")
+  set(LIB_DEBUG_PATH "${SOURCE_DIR}/out/Debug/lib")
+  set(LIB_PREFIX "lib")
+  set(LIB_EXT "a")
+elseif (UNIX)
+  ExternalProject_Add(
+    ${EXTERNAL_NAME}
+    URL "${EXTERNAL_BUILD_ASSETS}/dependencies/crashpad_linux_f1943fcb.tar.bz2"
+    URL_MD5 e0949e5988905471c63c399833879482
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ""
     INSTALL_COMMAND ""
@@ -43,8 +62,7 @@ elseif (APPLE)
   set(LIB_EXT "a")
 endif ()
 
-if (WIN32 OR APPLE)
-
+if (WIN32 OR APPLE OR UNIX)
   set(${EXTERNAL_NAME_UPPER}_INCLUDE_DIRS ${SOURCE_DIR}/include CACHE PATH "List of Crashpad include directories")
 
   set(${EXTERNAL_NAME_UPPER}_LIBRARY_RELEASE ${LIB_RELEASE_PATH}/${LIB_PREFIX}crashpad_client.${LIB_EXT} CACHE FILEPATH "Path to Crashpad release library")

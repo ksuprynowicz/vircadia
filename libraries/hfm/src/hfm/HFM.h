@@ -51,12 +51,12 @@ using ColorType = glm::vec3;
 #define HFM_COLOR_ELEMENT gpu::Element::VEC3F_XYZ
 #endif
 
-const int MAX_NUM_PIXELS_FOR_FBX_TEXTURE = 2048 * 2048;
+const int MAX_NUM_PIXELS_FOR_FBX_TEXTURE = 8192 * 8192;
 
 
 using ShapeVertices = std::vector<glm::vec3>;
 // The version of the Draco mesh binary data itself. See also: FBX_DRACO_MESH_VERSION in FBX.h
-static const int DRACO_MESH_VERSION = 2;
+static const int DRACO_MESH_VERSION = 3;
 
 static const int DRACO_BEGIN_CUSTOM_HIFI_ATTRIBUTES = 1000;
 static const int DRACO_ATTRIBUTE_MATERIAL_ID = DRACO_BEGIN_CUSTOM_HIFI_ATTRIBUTES;
@@ -173,23 +173,26 @@ public:
     void getTextureNames(QSet<QString>& textureList) const;
     void setMaxNumPixelsPerTexture(int maxNumPixels);
 
-    glm::vec3 diffuseColor{ 1.0f };
-    float diffuseFactor{ 1.0f };
-    glm::vec3 specularColor{ 0.02f };
-    float specularFactor{ 1.0f };
+    glm::vec3 diffuseColor { 1.0f };
+    float diffuseFactor { 1.0f };
+    glm::vec3 specularColor { 0.02f };
+    float specularFactor { 1.0f };
 
-    glm::vec3 emissiveColor{ 0.0f };
-    float emissiveFactor{ 0.0f };
+    glm::vec3 emissiveColor { 0.0f };
+    float emissiveFactor { 0.0f };
 
-    float shininess{ 23.0f };
-    float opacity{ 1.0f };
+    float shininess { 23.0f };
+    float opacity { 1.0f };
 
-    float metallic{ 0.0f };
-    float roughness{ 1.0f };
-    float emissiveIntensity{ 1.0f };
-    float ambientFactor{ 1.0f };
+    float metallic { 0.0f };
+    float roughness { 1.0f };
+    float emissiveIntensity { 1.0f };
+    float ambientFactor { 1.0f };
 
     float bumpMultiplier { 1.0f }; // TODO: to be implemented
+
+    graphics::MaterialKey::OpacityMapMode alphaMode { graphics::MaterialKey::OPACITY_MAP_BLEND };
+    float alphaCutoff { 0.5f };
 
     QString materialID;
     QString name;
@@ -207,19 +210,19 @@ public:
     Texture occlusionTexture;
     Texture scatteringTexture;
     Texture lightmapTexture;
-    glm::vec2 lightmapParams{ 0.0f, 1.0f };
+    glm::vec2 lightmapParams { 0.0f, 1.0f };
 
 
-    bool isPBSMaterial{ false };
+    bool isPBSMaterial { false };
     // THe use XXXMap are not really used to drive which map are going or not, debug only
-    bool useNormalMap{ false };
-    bool useAlbedoMap{ false };
-    bool useOpacityMap{ false };
-    bool useRoughnessMap{ false };
-    bool useSpecularMap{ false };
-    bool useMetallicMap{ false };
-    bool useEmissiveMap{ false };
-    bool useOcclusionMap{ false };
+    bool useNormalMap { false };
+    bool useAlbedoMap { false };
+    bool useOpacityMap { false };
+    bool useRoughnessMap { false };
+    bool useSpecularMap { false };
+    bool useMetallicMap { false };
+    bool useEmissiveMap { false };
+    bool useOcclusionMap { false };
 
     bool needTangentSpace() const;
 };
@@ -337,6 +340,8 @@ public:
     QMap<int, glm::quat> jointRotationOffsets;
     std::vector<ShapeVertices> shapeVertices;
     FlowData flowData;
+
+    void debugDump();
 };
 
 };

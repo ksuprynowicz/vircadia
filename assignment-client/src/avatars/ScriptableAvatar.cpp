@@ -23,6 +23,7 @@
 #include <AvatarLogging.h>
 #include <EntityItem.h>
 #include <EntityItemProperties.h>
+#include <NetworkingConstants.h>
 
 
 ScriptableAvatar::ScriptableAvatar() {
@@ -221,7 +222,7 @@ void ScriptableAvatar::updateJointMappings() {
         QNetworkAccessManager& networkAccessManager = NetworkAccessManager::getInstance();
         QNetworkRequest networkRequest = QNetworkRequest(_skeletonModelURL);
         networkRequest.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
-        networkRequest.setHeader(QNetworkRequest::UserAgentHeader, HIGH_FIDELITY_USER_AGENT);
+        networkRequest.setHeader(QNetworkRequest::UserAgentHeader, NetworkingConstants::VIRCADIA_USER_AGENT);
         DependencyManager::get<ResourceRequestObserver>()->update(
             _skeletonModelURL, -1, "AvatarData::updateJointMappings");
         QNetworkReply* networkReply = networkAccessManager.get(networkRequest);
@@ -279,19 +280,18 @@ void ScriptableAvatar::setJointMappingsFromNetworkReply() {
     networkReply->deleteLater();
 }
 
-void ScriptableAvatar::setHasProceduralBlinkFaceMovement(bool hasProceduralBlinkFaceMovement) {
-    _headData->setHasProceduralBlinkFaceMovement(hasProceduralBlinkFaceMovement);
-}
-
-void ScriptableAvatar::setHasProceduralEyeFaceMovement(bool hasProceduralEyeFaceMovement) {
-    _headData->setHasProceduralEyeFaceMovement(hasProceduralEyeFaceMovement);
-}
-
-void ScriptableAvatar::setHasAudioEnabledFaceMovement(bool hasAudioEnabledFaceMovement) {
-    _headData->setHasAudioEnabledFaceMovement(hasAudioEnabledFaceMovement);
-}
-
 AvatarEntityMap ScriptableAvatar::getAvatarEntityData() const {
+    auto data = getAvatarEntityDataInternal(true);
+    return data;
+}
+
+AvatarEntityMap ScriptableAvatar::getAvatarEntityDataNonDefault() const {
+    auto data = getAvatarEntityDataInternal(false);
+    return data;
+
+}
+
+AvatarEntityMap ScriptableAvatar::getAvatarEntityDataInternal(bool allProperties) const {
     // DANGER: Now that we store the AvatarEntityData in packed format this call is potentially Very Expensive!
     // Avoid calling this method if possible.
     AvatarEntityMap data;
@@ -300,9 +300,18 @@ AvatarEntityMap ScriptableAvatar::getAvatarEntityData() const {
         for (const auto& itr : _entities) {
             QUuid id = itr.first;
             EntityItemPointer entity = itr.second;
-            EntityItemProperties properties = entity->getProperties();
+
+            EncodeBitstreamParams params;
+            auto desiredProperties = entity->getEntityProperties(params);
+            desiredProperties += PROP_LOCAL_POSITION;
+            desiredProperties += PROP_LOCAL_ROTATION;
+            desiredProperties += PROP_LOCAL_VELOCITY;
+            desiredProperties += PROP_LOCAL_ANGULAR_VELOCITY;
+            desiredProperties += PROP_LOCAL_DIMENSIONS;
+            EntityItemProperties properties = entity->getProperties(desiredProperties);
+
             QByteArray blob;
-            EntityItemProperties::propertiesToBlob(_scriptEngine, sessionID, properties, blob);
+            EntityItemProperties::propertiesToBlob(_scriptEngine, sessionID, properties, blob, allProperties);
             data[id] = blob;
         }
     });
@@ -389,7 +398,7 @@ void ScriptableAvatar::setAvatarEntityData(const AvatarEntityMap& avatarEntityDa
 
     // clear deleted traits
     for (const auto& id : idsToClear) {
-        clearAvatarEntity(id);
+        clearAvatarEntityInternal(id);
     }
 }
 
@@ -399,7 +408,7 @@ void ScriptableAvatar::updateAvatarEntity(const QUuid& entityID, const QByteArra
         std::map<QUuid, EntityItemPointer>::iterator itr = _entities.find(entityID);
         if (itr != _entities.end()) {
             _entities.erase(itr);
-            clearAvatarEntity(entityID);
+            clearAvatarEntityInternal(entityID);
         }
         return;
     }

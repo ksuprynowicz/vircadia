@@ -20,6 +20,7 @@
 #include <AccountManager.h>
 #include <NetworkAccessManager.h>
 #include <NetworkingConstants.h>
+#include <MetaverseAPI.h>
 #include <NetworkLogging.h>
 #include <UserActivityLogger.h>
 #include <UUID.h>
@@ -28,8 +29,8 @@ QNetworkRequest createNetworkRequest() {
 
     QNetworkRequest request;
 
-    QUrl requestURL = NetworkingConstants::METAVERSE_SERVER_URL();
-    requestURL.setPath(USER_ACTIVITY_URL);
+    QUrl requestURL = MetaverseAPI::getCurrentMetaverseServerURL();
+    requestURL.setPath(MetaverseAPI::getCurrentMetaverseServerURLPath() + USER_ACTIVITY_URL);
 
     request.setUrl(requestURL);
 

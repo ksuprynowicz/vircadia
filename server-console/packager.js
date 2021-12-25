@@ -28,15 +28,15 @@ var options = {
 
 const EXEC_NAME = "server-console";
 var SHORT_NAME = argv.client_only ? "Console" : "Sandbox";
-var FULL_NAME = argv.client_only ? "High Fidelity Console" : "High Fidelity Sandbox";
+var FULL_NAME = argv.client_only ? "Vircadia Console" : "Vircadia Sandbox";
 
 // setup per OS options
 if (osType == "Darwin") {
-    options["app-bundle-id"] = "com.highfidelity.server-console" + (argv.production ? "" : "-dev")
+    options["app-bundle-id"] = "com.vircadia.server-console" + (argv.production ? "" : "-dev")
     options["name"] = SHORT_NAME
 } else if (osType == "Windows_NT") {
     options["version-string"] = {
-        CompanyName: "High Fidelity, Inc.",
+        CompanyName: "Vircadia",
         FileDescription: FULL_NAME,
         ProductName: FULL_NAME,
         OriginalFilename: EXEC_NAME + ".exe"
@@ -49,11 +49,11 @@ if (argv.out) {
 }
 
 // call the packager to produce the executable
-packager(options, function(error, appPath) {
-    if (error) {
+packager(options)
+    .then(appPath => {
+        console.log("Wrote new app to " + appPath);
+    })
+    .catch(error => {
         console.error("There was an error writing the packaged console: " + error.message);
         process.exit(1);
-    } else {
-        console.log("Wrote new app to " + appPath);
-    }
-});
+    });

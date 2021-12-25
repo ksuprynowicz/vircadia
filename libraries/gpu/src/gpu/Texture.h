@@ -343,6 +343,7 @@ public:
 
     class KtxStorage : public Storage {
     public:
+        KtxStorage(const storage::StoragePointer& storage);
         KtxStorage(const std::string& filename);
         KtxStorage(const cache::FilePointer& file);
         PixelsPointer getMipFace(uint16 level, uint8 face = 0) const override;
@@ -366,6 +367,7 @@ public:
         static std::vector<std::pair<std::shared_ptr<storage::FileStorage>, std::shared_ptr<std::mutex>>> _cachedKtxFiles;
         static std::mutex _cachedKtxFilesMutex;
 
+        storage::StoragePointer _storage;
         std::string _filename;
         cache::FilePointer _cacheEntry;
         std::atomic<uint8_t> _minMipLevelAvailable;
@@ -415,10 +417,15 @@ public:
 
     Element getTexelFormat() const { return _texelFormat; }
 
+    void setSize(int width, int height);
     Vec3u getDimensions() const { return Vec3u(_width, _height, _depth); }
     uint16 getWidth() const { return _width; }
     uint16 getHeight() const { return _height; }
     uint16 getDepth() const { return _depth; }
+
+    void setOriginalSize(int width, int height);
+    int getOriginalWidth() const { return _originalWidth; }
+    int getOriginalHeight() const { return _originalHeight; }
 
     // The number of faces is mostly used for cube map, and maybe for stereo ? otherwise it's 1
     // For cube maps, this means the pixels of the different faces are supposed to be packed back to back in a mip
@@ -543,6 +550,7 @@ public:
     Size getStoredSize() const;
 
     void setStorage(std::unique_ptr<Storage>& newStorage);
+    void setKtxBacking(const storage::StoragePointer& storage);
     void setKtxBacking(const std::string& filename);
     void setKtxBacking(const cache::FilePointer& cacheEntry);
 
@@ -568,16 +576,19 @@ public:
     void setExternalRecycler(const ExternalRecycler& recycler);
     ExternalRecycler getExternalRecycler() const;
 
+    bool getImportant() const { return _important; }
+    void setImportant(bool important) { _important = important; }
+
     const GPUObjectPointer gpuObject {};
 
     ExternalUpdates getUpdates() const;
 
     // Serialize a texture into a KTX file
-    static ktx::KTXUniquePointer serialize(const Texture& texture);
+    static ktx::KTXUniquePointer serialize(const Texture& texture, const glm::ivec2& originalSize);
 
-    static TexturePointer build(const ktx::KTXDescriptor& descriptor);
-    static TexturePointer unserialize(const std::string& ktxFile);
-    static TexturePointer unserialize(const cache::FilePointer& cacheEntry, const std::string& source = std::string());
+    static std::pair<TexturePointer, glm::ivec2> build(const ktx::KTXDescriptor& descriptor);
+    static std::pair<TexturePointer, glm::ivec2> unserialize(const std::string& ktxFile);
+    static std::pair<TexturePointer, glm::ivec2> unserialize(const cache::FilePointer& cacheEntry, const std::string& source = std::string());
 
     static bool evalKTXFormat(const Element& mipFormat, const Element& texelFormat, ktx::Header& header);
     static bool evalTextureFormat(const ktx::Header& header, Element& mipFormat, Element& texelFormat);
@@ -609,6 +620,8 @@ protected:
     uint16 _width { 1 };
     uint16 _height { 1 };
     uint16 _depth { 1 };
+    int _originalWidth { 0 };
+    int _originalHeight { 0 };
 
     uint16 _numSamples { 1 };
 
@@ -629,6 +642,7 @@ protected:
     bool _autoGenerateMips = false;
     bool _isIrradianceValid = false;
     bool _defined = false;
+    bool _important = false;
    
     static TexturePointer create(TextureUsageType usageType, Type type, const Element& texelFormat, uint16 width, uint16 height, uint16 depth, uint16 numSamples, uint16 numSlices, uint16 numMips, const Sampler& sampler);
 
@@ -669,9 +683,10 @@ public:
         _element(element)
     {};
 
-    TextureView(const TexturePointer& texture, uint16 subresource) :
+    TextureView(const TexturePointer& texture, uint16 subresource, std::function<gpu::TexturePointer()> textureOperator = nullptr) :
         _texture(texture),
-        _subresource(subresource)
+        _subresource(subresource),
+        _textureOperator(textureOperator)
     {};
 
     ~TextureView() {}
@@ -682,6 +697,12 @@ public:
     bool operator !() const { return (!_texture); }
 
     bool isValid() const { return bool(_texture); }
+
+    bool isReference() const { return (bool)_textureOperator; }
+    std::function<gpu::TexturePointer()> getTextureOperator() const { return _textureOperator; }
+
+private:
+    std::function<gpu::TexturePointer()> _textureOperator { nullptr };
 };
 typedef std::vector<TextureView> TextureViews;
 
@@ -693,16 +714,20 @@ public:
 
     void setUrl(const QUrl& url) { _imageUrl = url; }
     const QUrl& getUrl() const { return _imageUrl; }
-    const gpu::TexturePointer getGPUTexture() const { return _gpuTexture; }
+    const gpu::TexturePointer getGPUTexture() const;
     void setType(int type) { _type = type; }
     int getType() const { return _type; }
 
-    void resetTexture(gpu::TexturePointer texture);
+    void resetTexture(const gpu::TexturePointer& texture);
+    void resetTextureOperator(const std::function<gpu::TexturePointer()>& textureOperator);
 
     bool isDefined() const;
+    std::function<gpu::TexturePointer()> getTextureOperator() const { return _gpuTextureOperator; }
 
 protected:
     gpu::TexturePointer _gpuTexture;
+    std::function<gpu::TexturePointer()> _gpuTextureOperator { nullptr };
+    mutable bool _locked { false };
     QUrl _imageUrl;
     int _type { 0 };
 };

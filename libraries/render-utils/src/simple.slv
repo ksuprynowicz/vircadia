@@ -2,9 +2,6 @@
 <$VERSION_HEADER$>
 //  Generated on <$_SCRIBE_DATE$>
 //
-//  simple.vert
-//  vertex shader
-//
 //  Created by Andrzej Kapolka on 9/15/14.
 //  Copyright 2014 High Fidelity, Inc.
 //
@@ -24,23 +21,41 @@ INPUT(GPU_ATTR_TEXCOORD0, vec4, inTexCoord0);
 
 <@include render-utils/ShaderConstants.h@>
 
-// the interpolated normal
+<@if HIFI_USE_FADE@>
+    <@include Fade.slh@>
+    <$declareFadeVertexInstanced()$>
+
+    OUTPUT(RENDER_UTILS_ATTR_POSITION_WS), vec4, _positionWS);
+<@endif@>
+
+<@if not HIFI_USE_UNLIT@>
+    <@if HIFI_USE_FORWARD or HIFI_USE_TRANSLUCENT@>
+        OUTPUT(RENDER_UTILS_ATTR_POSITION_ES, vec4, _positionES);
+    <@endif@>
+<@endif@>
 OUTPUT(RENDER_UTILS_ATTR_NORMAL_WS, vec3, _normalWS);
-OUTPUT(RENDER_UTILS_ATTR_NORMAL_MS, vec3, _normalMS);
 OUTPUT(RENDER_UTILS_ATTR_COLOR, vec4, _color);
 OUTPUT(RENDER_UTILS_ATTR_TEXCOORD01, vec4, _texCoord01);
-OUTPUT(RENDER_UTILS_ATTR_POSITION_MS, vec4, _positionMS);
-OUTPUT(RENDER_UTILS_ATTR_POSITION_ES, vec4, _positionES);
 
 void main(void) {
     _color = color_sRGBAToLinear(inColor);
-    _texCoord01.xy = inTexCoord0.st;
-    _positionMS = inPosition;
-    _normalMS = inNormal.xyz;
+    _texCoord01 = vec4(inTexCoord0.st, 0.0, 0.0);
 
-    // standard transform
     TransformCamera cam = getTransformCamera();
     TransformObject obj = getTransformObject();
-    <$transformModelToEyeAndClipPos(cam, obj, inPosition, _positionES, gl_Position)$>
+<@if not HIFI_USE_UNLIT@>
+    <@if HIFI_USE_FORWARD or HIFI_USE_TRANSLUCENT@>
+        <$transformModelToEyeAndClipPos(cam, obj, inPosition, _positionES, gl_Position)$>
+    <@else@>
+        <$transformModelToClipPos(cam, obj, inPosition, gl_Position)$>
+    <@endif@>
+<@else@>
+    <$transformModelToClipPos(cam, obj, inPosition, gl_Position)$>
+<@endif@>
+
+<@if HIFI_USE_FADE@>
+    <$transformModelToWorldPos(obj, inPosition, _positionWS)$>
+    <$passThroughFadeObjectParams()$>
+<@endif@>
     <$transformModelToWorldDir(cam, obj, inNormal.xyz, _normalWS)$>
 }

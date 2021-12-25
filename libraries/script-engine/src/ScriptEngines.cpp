@@ -9,6 +9,7 @@
 #include "ScriptEngines.h"
 
 #include <QtCore/QStandardPaths>
+#include <QtCore/QSharedPointer>
 
 #include <QtWidgets/QApplication>
 
@@ -26,9 +27,9 @@
 #define __LOC__ __FILE__ "(" __STR1__(__LINE__) ") : Warning Msg: "
 
 static const QString DESKTOP_LOCATION = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
-static const bool HIFI_SCRIPT_DEBUGGABLES { true };
 static const QString SETTINGS_KEY { "RunningScripts" };
 static const QUrl DEFAULT_SCRIPTS_LOCATION { "file:///~//defaultScripts.js" };
+
 // Using a QVariantList so this is human-readable in the settings file
 static Setting::Handle<QVariantList> runningScriptsHandle(SETTINGS_KEY, { QVariant(DEFAULT_SCRIPTS_LOCATION) });
 
@@ -64,9 +65,11 @@ void ScriptEngines::onErrorLoadingScript(const QString& url) {
     emit errorLoadingScript(url);
 }
 
-ScriptEngines::ScriptEngines(ScriptEngine::Context context)
-    : _context(context)
+ScriptEngines::ScriptEngines(ScriptEngine::Context context, const QUrl& defaultScriptsOverride)
+    : _context(context), _defaultScriptsOverride(defaultScriptsOverride)
 {
+    scriptGatekeeper.initialize();
+
     _scriptsModelFilter.setSourceModel(&_scriptsModel);
     _scriptsModelFilter.sort(0, Qt::AscendingOrder);
     _scriptsModelFilter.setDynamicSortFilter(true);
@@ -135,24 +138,6 @@ QUrl expandScriptUrl(const QUrl& rawScriptURL) {
 
 QObject* scriptsModel();
 
-bool NativeScriptInitializers::registerNativeScriptInitializer(NativeScriptInitializer initializer) {
-    return registerScriptInitializer([initializer](ScriptEnginePointer engine) {
-        initializer(qobject_cast<QScriptEngine*>(engine.data()));
-    });
-}
-
-bool NativeScriptInitializers::registerScriptInitializer(ScriptInitializer initializer) {
-    if (auto scriptEngines = DependencyManager::get<ScriptEngines>().data()) {
-        scriptEngines->registerScriptInitializer(initializer);
-        return true;
-    }
-    return false;
-}
-
-void ScriptEngines::registerScriptInitializer(ScriptInitializer initializer) {
-    _scriptInitializers.push_back(initializer);
-}
-
 void ScriptEngines::addScriptEngine(ScriptEnginePointer engine) {
     if (!_isStopped) {
         QMutexLocker locker(&_allScriptsMutex);
@@ -199,7 +184,7 @@ void ScriptEngines::shutdownScripting() {
             // want any of the scripts final "scriptEnding()" or pending "update()" methods from accessing
             // any application state after we leave this stopAllScripts() method
             qCDebug(scriptengine) << "waiting on script:" << scriptName;
-            scriptEngine->waitTillDoneRunning();
+            scriptEngine->waitTillDoneRunning(true);
             qCDebug(scriptengine) << "done waiting on script:" << scriptName;
         }
         // Once the script is stopped, we can remove it from our set
@@ -208,6 +193,18 @@ void ScriptEngines::shutdownScripting() {
     qCDebug(scriptengine) << "DONE Stopping all scripts....";
 }
 
+/*@jsdoc
+ * Information on a public script, i.e., a script that's included in the Interface installation.
+ * @typedef {object} ScriptDiscoveryService.PublicScript
+ * @property {string} name - The script's file name.
+ * @property {string} type - <code>"script"</code> or <code>"folder"</code>.
+ *     <p class="important">Deprecated: This property is deprecated and will be removed. It currently always has the value,
+ *     <code>"script"</code>.</p>
+ * @property {ScriptDiscoveryService.PublicScript[]} [children] - Only present if <code>type == "folder"</code>.
+ *     <p class="important">Deprecated: This property is deprecated and will be removed. It currently is never present.
+ * @property {string} [url] - The full URL of the script &mdash; including the <code>"file:///"</code> scheme at the start.
+ *     <p>Only present if <code>type == "script"</code>.</p>
+ */
 QVariantList getPublicChildNodes(TreeNodeFolder* parent) {
     QVariantList result;
     QList<TreeNodeBase*> treeNodes = getScriptsModel().getFolderNodes(parent);
@@ -239,6 +236,13 @@ QVariantList ScriptEngines::getPublic() {
     return getPublicChildNodes(NULL);
 }
 
+/*@jsdoc
+ * Information on a local script.
+ * @typedef {object} ScriptDiscoveryService.LocalScript
+ * @property {string} name - The script's file name.
+ * @property {string} path - The script's path.
+ * @deprecated This type is deprecated and will be removed.
+ */
 QVariantList ScriptEngines::getLocal() {
     QVariantList result;
     QList<TreeNodeBase*> treeNodes = getScriptsModel().getFolderNodes(NULL);
@@ -259,6 +263,15 @@ QVariantList ScriptEngines::getLocal() {
     return result;
 }
 
+/*@jsdoc
+ * Information on a running script.
+ * @typedef {object} ScriptDiscoveryService.RunningScript
+ * @property {boolean} local - <code>true</code> if the script is a local file (i.e., the scheme is "file"), <code>false</code>
+ *     if it isn't (e.g., the scheme is "http").
+ * @property {string} name - The script's file name.
+ * @property {string} path - The script's path and file name &mdash; excluding the scheme if a local file.
+ * @property {string} url - The full URL of the script &mdash; including the scheme if a local file.
+ */
 QVariantList ScriptEngines::getRunning() {
     QVariantList result;
     auto runningScripts = getRunningScripts();
@@ -322,12 +335,21 @@ void ScriptEngines::loadScripts() {
 
     // loads all saved scripts
     auto runningScripts = runningScriptsHandle.get();
+    bool defaultScriptsOverrideSet = !_defaultScriptsOverride.isEmpty();
 
     for (auto script : runningScripts) {
-        auto string = script.toString();
-        if (!string.isEmpty()) {
-            loadScript(string);
+        auto url = script.toUrl();
+        if (!url.isEmpty()) {
+            if (defaultScriptsOverrideSet && url == DEFAULT_SCRIPTS_LOCATION) {
+                _defaultScriptsWasRunning = true;
+            } else {
+                loadScript(url);
+            }
         }
+    }
+
+    if (defaultScriptsOverrideSet) {
+        loadScript(_defaultScriptsOverride, false);
     }
 }
 
@@ -342,6 +364,7 @@ void ScriptEngines::saveScripts() {
     // the scripts that the user expects to be there when launched without the
     // --scripts override.
     if (_defaultScriptsLocationOverridden) {
+        runningScriptsHandle.set(QVariantList{ DEFAULT_SCRIPTS_LOCATION });
         return;
     }
 
@@ -357,6 +380,10 @@ void ScriptEngines::saveScripts() {
                 list.append(normalizedUrl.toString());
             }
         }
+    }
+
+    if (_defaultScriptsWasRunning) {
+        list.append(DEFAULT_SCRIPTS_LOCATION);
     }
 
     runningScriptsHandle.set(list);
@@ -387,13 +414,14 @@ void ScriptEngines::stopAllScripts(bool restart) {
             continue;
         }
 
+        bool isOverrideScript = it.key().toString().compare(this->_defaultScriptsOverride.toString()) == 0;
         // queue user scripts if restarting
-        if (restart && scriptEngine->isUserLoaded()) {
+        if (restart && (scriptEngine->isUserLoaded() || isOverrideScript)) {
             _isReloading = true;
             ScriptEngine::Type type = scriptEngine->getType();
 
-            connect(scriptEngine.data(), &ScriptEngine::finished, this, [this, type] (QString scriptName) {
-                reloadScript(scriptName, true)->setType(type);
+            connect(scriptEngine.data(), &ScriptEngine::finished, this, [this, type, isOverrideScript] (QString scriptName) {
+                reloadScript(scriptName, !isOverrideScript)->setType(type);
             });
         }
 
@@ -420,7 +448,7 @@ bool ScriptEngines::stopScript(const QString& rawScriptURL, bool restart) {
 
         QReadLocker lock(&_scriptEnginesHashLock);
         if (_scriptEnginesHash.contains(scriptURL)) {
-            ScriptEnginePointer scriptEngine = _scriptEnginesHash[scriptURL];
+            ScriptEnginePointer scriptEngine = _scriptEnginesHash.value(scriptURL);
             if (restart) {
                 bool isUserLoaded = scriptEngine->isUserLoaded();
                 ScriptEngine::Type type = scriptEngine->getType();
@@ -461,7 +489,8 @@ ScriptEnginePointer ScriptEngines::loadScript(const QUrl& scriptFilename, bool i
             Q_ARG(bool, isUserLoaded),
             Q_ARG(bool, loadScriptFromEditor),
             Q_ARG(bool, activateMainWindow),
-            Q_ARG(bool, reload));
+            Q_ARG(bool, reload),
+            Q_ARG(bool, quitWhenFinished));
         return result;
     }
     QUrl scriptUrl;
@@ -532,7 +561,7 @@ void ScriptEngines::onScriptEngineLoaded(const QString& rawScriptURL) {
         QWriteLocker lock(&_scriptEnginesHashLock);
         QUrl url = QUrl(rawScriptURL);
         QUrl normalized = normalizeScriptURL(url);
-        _scriptEnginesHash.insertMulti(normalized, scriptEngine);
+        _scriptEnginesHash.insert(normalized, scriptEngine);
     }
 
     // Update settings with new script
@@ -545,12 +574,8 @@ void ScriptEngines::quitWhenFinished() {
 }
 
 int ScriptEngines::runScriptInitializers(ScriptEnginePointer scriptEngine) {
-    int ii=0;
-    for (auto initializer : _scriptInitializers) {
-        ii++;
-        initializer(scriptEngine);
-    }
-    return ii;
+    auto nativeCount = DependencyManager::get<ScriptInitializers>()->runScriptInitializers(scriptEngine.data());
+    return nativeCount + ScriptInitializerMixin<ScriptEnginePointer>::runScriptInitializers(scriptEngine);
 }
 
 void ScriptEngines::launchScriptEngine(ScriptEnginePointer scriptEngine) {
@@ -564,17 +589,7 @@ void ScriptEngines::launchScriptEngine(ScriptEnginePointer scriptEngine) {
 
     // register our application services and set it off on its own thread
     runScriptInitializers(scriptEngine);
-
-    // FIXME disabling 'shift key' debugging for now.  If you start up the application with
-    // the shift key held down, it triggers a deadlock because of script interfaces running
-    // on the main thread
-    auto const wantDebug = scriptEngine->isDebuggable(); //  || (qApp->queryKeyboardModifiers() & Qt::ShiftModifier);
-
-    if (HIFI_SCRIPT_DEBUGGABLES && wantDebug) {
-        scriptEngine->runDebuggable();
-    } else {
-        scriptEngine->runInThread();
-    }
+    scriptEngine->runInThread();
 }
 
 void ScriptEngines::onScriptFinished(const QString& rawScriptURL, ScriptEnginePointer engine) {

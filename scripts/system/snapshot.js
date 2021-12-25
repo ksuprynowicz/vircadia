@@ -65,6 +65,7 @@ function onMessage(message) {
     // 2. Although we currently use a single image, we would like to take snapshot, a selfie, a 360 etc. all at the
     //    same time, show the user all of them, and have the user deselect any that they do not want to share.
     //    So we'll ultimately be receiving a set of objects, perhaps with different post processing for each.
+
     if (message.type !== "snapshot") {
         return;
     }
@@ -85,7 +86,7 @@ function onMessage(message) {
                         image_data: imageData,
                         canShare: canShare
                     });
-                });                
+                });
             } else {
                 ui.sendMessage({
                     type: "snapshot",
@@ -270,9 +271,17 @@ function onMessage(message) {
 }
 
 var POLAROID_PRINT_SOUND = SoundCache.getSound(Script.resourcesPath() + "sounds/snapshot/sound-print-photo.wav");
-var POLAROID_MODEL_URL = 'http://hifi-content.s3.amazonaws.com/alan/dev/Test/snapshot.fbx';
+var POLAROID_MODEL_URL = Script.getExternalPath(Script.ExternalPaths.HF_Content, "/alan/dev/Test/snapshot.fbx");
 var POLAROID_RATE_LIMIT_MS = 1000;
 var polaroidPrintingIsRateLimited = false;
+
+// force call the gotoPreviousApp on script thead to load snapshot html page.
+var tablet = Tablet.getTablet("com.highfidelity.interface.tablet.system");
+tablet.fromQml.connect(function(message) {
+    if (message === 'returnToPreviousApp') {
+	tablet.returnToPreviousApp();
+    }
+});
 
 function printToPolaroid(image_url) {
     // Rate-limit printing
@@ -465,9 +474,10 @@ function takeSnapshot() {
             volume: 1.0
         });
         HMD.closeTablet();
+        var DOUBLE_RENDER_TIME_TO_MS = 2000; // If rendering is bogged down, allow double the render time to close the tablet.
         Script.setTimeout(function () {
             Window.takeSnapshot(false, includeAnimated, 1.91);
-        }, SNAPSHOT_DELAY);
+        }, Math.max(SNAPSHOT_DELAY, DOUBLE_RENDER_TIME_TO_MS / Rates.render ));
     }, FINISH_SOUND_DELAY);
     UserActivityLogger.logAction("snaphshot_taken", { location: location.href });
 }

@@ -4,6 +4,7 @@
 //
 //  Created by Stephen Birarda on 2/15/13.
 //  Copyright 2013 High Fidelity, Inc.
+//  Copyright 2020 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -33,13 +34,15 @@
 #include "AddressManager.h"
 #include "Assignment.h"
 #include "AudioHelpers.h"
-#include "HifiSockAddr.h"
+#include "DomainAccountManager.h"
+#include "SockAddr.h"
 #include "FingerprintUtils.h"
 
 #include "NetworkLogging.h"
 #include "udt/PacketHeaders.h"
 #include "SharedUtil.h"
 #include <Trace.h>
+#include <ModerationFlags.h>
 
 using namespace std::chrono;
 
@@ -92,6 +95,12 @@ NodeList::NodeList(char newOwnerType, int socketListenPort, int dtlsListenPort) 
     // send a ping punch immediately
     connect(&_domainHandler, &DomainHandler::icePeerSocketsReceived, this, &NodeList::pingPunchForDomainServer);
 
+    // FIXME: Can remove this temporary work-around in version 2021.2.0. (New protocol version implies a domain server upgrade.)
+    // Adjust our canRezAvatarEntities permissions on older domains that do not have this setting.
+    // DomainServerList and DomainSettings packets can come in either order so need to adjust with both occurrences.
+    auto nodeList = DependencyManager::get<NodeList>();
+    connect(&_domainHandler, &DomainHandler::settingsReceived, this, &NodeList::adjustCanRezAvatarEntitiesPerSettings);
+
     auto accountManager = DependencyManager::get<AccountManager>();
 
     // assume that we may need to send a new DS check in anytime a new keypair is generated
@@ -102,6 +111,13 @@ NodeList::NodeList(char newOwnerType, int socketListenPort, int dtlsListenPort) 
 
     // clear our NodeList when logout is requested
     connect(accountManager.data(), &AccountManager::logoutComplete , this, [this]{ reset("Logged out"); });
+
+    // Only used in Interface.
+    auto domainAccountManager = DependencyManager::get<DomainAccountManager>();
+    if (domainAccountManager) {
+        _hasDomainAccountManager = true;
+        connect(domainAccountManager.data(), &DomainAccountManager::newTokens, this, &NodeList::sendDomainServerCheckIn);
+    }
 
     // anytime we get a new node we will want to attempt to punch to it
     connect(this, &LimitedNodeList::nodeAdded, this, &NodeList::startNodeHolePunch);
@@ -116,7 +132,11 @@ NodeList::NodeList(char newOwnerType, int socketListenPort, int dtlsListenPort) 
     connect(&_domainHandler, SIGNAL(connectedToDomain(QUrl)), &_keepAlivePingTimer, SLOT(start()));
     connect(&_domainHandler, &DomainHandler::disconnectedFromDomain, &_keepAlivePingTimer, &QTimer::stop);
 
-    connect(&_domainHandler, &DomainHandler::limitOfSilentDomainCheckInsReached, this, [this]() { _connectReason = LimitedNodeList::SilentDomainDisconnect; });
+    connect(&_domainHandler, &DomainHandler::limitOfSilentDomainCheckInsReached, this, [this]() {
+        if (_connectReason != Awake) {
+            _connectReason = SilentDomainDisconnect;
+        }
+    });
 
     // set our sockAddrBelongsToDomainOrNode method as the connection creation filter for the udt::Socket
     using std::placeholders::_1;
@@ -126,27 +146,41 @@ NodeList::NodeList(char newOwnerType, int socketListenPort, int dtlsListenPort) 
     startSTUNPublicSocketUpdate();
 
     auto& packetReceiver = getPacketReceiver();
-    packetReceiver.registerListener(PacketType::DomainList, this, "processDomainServerList");
-    packetReceiver.registerListener(PacketType::Ping, this, "processPingPacket");
-    packetReceiver.registerListener(PacketType::PingReply, this, "processPingReplyPacket");
-    packetReceiver.registerListener(PacketType::ICEPing, this, "processICEPingPacket");
-    packetReceiver.registerListener(PacketType::DomainServerAddedNode, this, "processDomainServerAddedNode");
-    packetReceiver.registerListener(PacketType::DomainServerConnectionToken, this, "processDomainServerConnectionTokenPacket");
-    packetReceiver.registerListener(PacketType::DomainConnectionDenied, &_domainHandler, "processDomainServerConnectionDeniedPacket");
-    packetReceiver.registerListener(PacketType::DomainSettings, &_domainHandler, "processSettingsPacketList");
-    packetReceiver.registerListener(PacketType::ICEServerPeerInformation, &_domainHandler, "processICEResponsePacket");
-    packetReceiver.registerListener(PacketType::DomainServerRequireDTLS, &_domainHandler, "processDTLSRequirementPacket");
-    packetReceiver.registerListener(PacketType::ICEPingReply, &_domainHandler, "processICEPingReplyPacket");
-    packetReceiver.registerListener(PacketType::DomainServerPathResponse, this, "processDomainServerPathResponse");
-    packetReceiver.registerListener(PacketType::DomainServerRemovedNode, this, "processDomainServerRemovedNode");
-    packetReceiver.registerListener(PacketType::UsernameFromIDReply, this, "processUsernameFromIDReply");
+    packetReceiver.registerListener(PacketType::DomainList,
+        PacketReceiver::makeUnsourcedListenerReference<NodeList>(this, &NodeList::processDomainList));
+    packetReceiver.registerListener(PacketType::Ping,
+        PacketReceiver::makeSourcedListenerReference<NodeList>(this, &NodeList::processPingPacket));
+    packetReceiver.registerListener(PacketType::PingReply,
+        PacketReceiver::makeSourcedListenerReference<NodeList>(this, &NodeList::processPingReplyPacket));
+    packetReceiver.registerListener(PacketType::ICEPing,
+        PacketReceiver::makeUnsourcedListenerReference<NodeList>(this, &NodeList::processICEPingPacket));
+    packetReceiver.registerListener(PacketType::DomainServerAddedNode,
+        PacketReceiver::makeUnsourcedListenerReference<NodeList>(this, &NodeList::processDomainServerAddedNode));
+    packetReceiver.registerListener(PacketType::DomainServerConnectionToken,
+        PacketReceiver::makeUnsourcedListenerReference<NodeList>(this, &NodeList::processDomainServerConnectionTokenPacket));
+    packetReceiver.registerListener(PacketType::DomainConnectionDenied,
+        PacketReceiver::makeUnsourcedListenerReference<DomainHandler>(&_domainHandler, &DomainHandler::processDomainServerConnectionDeniedPacket));
+    packetReceiver.registerListener(PacketType::DomainSettings,
+        PacketReceiver::makeUnsourcedListenerReference<DomainHandler>(&_domainHandler, &DomainHandler::processSettingsPacketList));
+    packetReceiver.registerListener(PacketType::ICEServerPeerInformation,
+        PacketReceiver::makeUnsourcedListenerReference<DomainHandler>(&_domainHandler, &DomainHandler::processICEResponsePacket));
+    packetReceiver.registerListener(PacketType::DomainServerRequireDTLS,
+        PacketReceiver::makeUnsourcedListenerReference<DomainHandler>(&_domainHandler, &DomainHandler::processDTLSRequirementPacket));
+    packetReceiver.registerListener(PacketType::ICEPingReply,
+        PacketReceiver::makeUnsourcedListenerReference<DomainHandler>(&_domainHandler, &DomainHandler::processICEPingReplyPacket));
+    packetReceiver.registerListener(PacketType::DomainServerPathResponse,
+        PacketReceiver::makeUnsourcedListenerReference<NodeList>(this, &NodeList::processDomainServerPathResponse));
+    packetReceiver.registerListener(PacketType::DomainServerRemovedNode,
+        PacketReceiver::makeUnsourcedListenerReference<NodeList>(this, &NodeList::processDomainServerRemovedNode));
+    packetReceiver.registerListener(PacketType::UsernameFromIDReply,
+        PacketReceiver::makeUnsourcedListenerReference<NodeList>(this, &NodeList::processUsernameFromIDReply));
 }
 
-qint64 NodeList::sendStats(QJsonObject statsObject, HifiSockAddr destination) {
+qint64 NodeList::sendStats(QJsonObject statsObject, SockAddr destination) {
     if (thread() != QThread::currentThread()) {
         QMetaObject::invokeMethod(this, "sendStats", Qt::QueuedConnection,
                                   Q_ARG(QJsonObject, statsObject),
-                                  Q_ARG(HifiSockAddr, destination));
+                                  Q_ARG(SockAddr, destination));
         return 0;
     }
 
@@ -211,7 +245,7 @@ void NodeList::timePingReply(ReceivedMessage& message, const SharedNodePointer& 
 void NodeList::processPingPacket(QSharedPointer<ReceivedMessage> message, SharedNodePointer sendingNode) {
     // send back a reply
     auto replyPacket = constructPingReplyPacket(*message);
-    const HifiSockAddr& senderSockAddr = message->getSenderSockAddr();
+    const SockAddr& senderSockAddr = message->getSenderSockAddr();
     sendPacket(std::move(replyPacket), *sendingNode, senderSockAddr);
 
     // If we don't have a symmetric socket for this node and this socket doesn't match
@@ -259,8 +293,7 @@ void NodeList::reset(QString reason, bool skipDomainHandlerReset) {
                                   Q_ARG(bool, skipDomainHandlerReset));
         return;
     }
-
-    LimitedNodeList::reset();
+    LimitedNodeList::reset(reason);
 
     // lock and clear our set of ignored IDs
     _ignoredSetLock.lockForWrite();
@@ -324,26 +357,27 @@ void NodeList::sendDomainServerCheckIn() {
 
     if (publicSockAddr.isNull()) {
         // we don't know our public socket and we need to send it to the domain server
-        qCDebug(networking_ice) << "Waiting for inital public socket from STUN. Will not send domain-server check in.";
+        qCDebug(networking_ice) << "Waiting for initial public socket from STUN. Will not send domain-server check in.";
     } else if (domainHandlerIp.isNull() && _domainHandler.requiresICE()) {
         qCDebug(networking_ice) << "Waiting for ICE discovered domain-server socket. Will not send domain-server check in.";
         handleICEConnectionToDomainServer();
         // let the domain handler know we are due to send a checkin packet
     } else if (!domainHandlerIp.isNull() && !_domainHandler.checkInPacketTimeout()) {
         bool domainIsConnected = _domainHandler.isConnected();
-        HifiSockAddr domainSockAddr = _domainHandler.getSockAddr();
+        SockAddr domainSockAddr = _domainHandler.getSockAddr();
         PacketType domainPacketType = !domainIsConnected
             ? PacketType::DomainConnectRequest : PacketType::DomainListRequest;
 
         if (!domainIsConnected) {
             auto hostname = _domainHandler.getHostname();
-            qCDebug(networking_ice) << "Sending connect request to domain-server at" << hostname;
+            QMetaEnum metaEnum = QMetaEnum::fromType<LimitedNodeList::ConnectReason>();
+            qCDebug(networking_ice) << "Sending connect request ( REASON:" << QString(metaEnum.valueToKey(_connectReason)) << ") to domain-server at" << hostname;
 
             // is this our localhost domain-server?
             // if so we need to make sure we have an up-to-date local port in case it restarted
 
-            if (domainSockAddr.getAddress() == QHostAddress::LocalHost
-                || hostname == "localhost") {
+            if ((domainSockAddr.getAddress() == QHostAddress::LocalHost || hostname == "localhost")
+                && _domainPortAutoDiscovery) {
 
                 quint16 domainPort = DEFAULT_DOMAIN_SERVER_PORT;
                 getLocalServerPortFromSharedMemory(DOMAIN_SERVER_LOCAL_PORT_SMEM_KEY, domainPort);
@@ -367,11 +401,13 @@ void NodeList::sendDomainServerCheckIn() {
             return;
         }
 
+        // WEBRTC TODO: Move code into packet library. And update reference in DomainConnectRequest.js.
+
         auto domainPacket = NLPacket::create(domainPacketType);
 
         QDataStream packetStream(domainPacket.get());
 
-        HifiSockAddr localSockAddr = _localSockAddr;
+        SockAddr localSockAddr = _localSockAddr;
         if (domainPacketType == PacketType::DomainConnectRequest) {
 
 #if (PR_BUILD || DEV_BUILD)
@@ -418,19 +454,28 @@ void NodeList::sendDomainServerCheckIn() {
             packetStream << hardwareAddress;
 
             // now add the machine fingerprint
-            auto accountManager = DependencyManager::get<AccountManager>();
             packetStream << FingerprintUtils::getMachineFingerprint();
 
-            auto desc = platform::getAll();
+            platform::json all = platform::getAll();
+            platform::json desc;
+            // only pull out those items that will fit within a packet
+            desc[platform::keys::COMPUTER] = all[platform::keys::COMPUTER];
+            desc[platform::keys::MEMORY] = all[platform::keys::MEMORY];
+            desc[platform::keys::CPUS] = all[platform::keys::CPUS];
+            desc[platform::keys::GPUS] = all[platform::keys::GPUS];
+            desc[platform::keys::DISPLAYS] = all[platform::keys::DISPLAYS];
+            desc[platform::keys::NICS] = all[platform::keys::NICS];
 
             QByteArray systemInfo(desc.dump().c_str());
             QByteArray compressedSystemInfo = qCompress(systemInfo);
 
             if (compressedSystemInfo.size() > MAX_SYSTEM_INFO_SIZE) {
+                // FIXME
                 // Highly unlikely, as not even unreasonable machines will
                 // overflow the max size, but prevent MTU overflow anyway.
                 // We could do something sophisticated like clearing specific
                 // values if they're too big, but we'll save that for later.
+                // Alternative solution would be to write system info at the end of the packet, only if there is space.
                 compressedSystemInfo.clear();
             }
 
@@ -451,18 +496,32 @@ void NodeList::sendDomainServerCheckIn() {
 
         // pack our data to send to the domain-server including
         // the hostname information (so the domain-server can see which place name we came in on)
-        packetStream << _ownerType.load() << publicSockAddr << localSockAddr << _nodeTypesOfInterest.toList();
+        packetStream << _ownerType.load() << publicSockAddr.getType() << publicSockAddr << localSockAddr.getType() 
+            << localSockAddr << _nodeTypesOfInterest.toList();
         packetStream << DependencyManager::get<AddressManager>()->getPlaceName();
 
         if (!domainIsConnected) {
+
+            // Metaverse account.
             DataServerAccountInfo& accountInfo = accountManager->getAccountInfo();
             packetStream << accountInfo.getUsername();
-
             // if this is a connect request, and we can present a username signature, send it along
             if (requiresUsernameSignature && accountManager->getAccountInfo().hasPrivateKey()) {
                 const QByteArray& usernameSignature = accountManager->getAccountInfo().getUsernameSignature(connectionToken);
                 packetStream << usernameSignature;
+            } else {
+                packetStream << QString("");  // Placeholder in case have domain username.
             }
+
+            // Domain account.
+            if (_hasDomainAccountManager) {
+                auto domainAccountManager = DependencyManager::get<DomainAccountManager>();
+                if (!domainAccountManager->getUsername().isEmpty() && !domainAccountManager->getAccessToken().isEmpty()) {
+                    packetStream << domainAccountManager->getUsername();
+                    packetStream << (domainAccountManager->getAccessToken() + ":" + domainAccountManager->getRefreshToken());
+                }
+            }
+
         }
 
         flagTimeForConnectionStep(LimitedNodeList::ConnectionStep::SendDSCheckIn);
@@ -478,7 +537,7 @@ void NodeList::sendDomainServerCheckIn() {
             sendPacket(std::move(packetCopy), domainSockAddr);
         }
         sendPacket(std::move(domainPacket), domainSockAddr);
-        
+
     }
 }
 
@@ -605,7 +664,7 @@ void NodeList::handleICEConnectionToDomainServer() {
                                                   _domainHandler.getICEClientID(),
                                                   _domainHandler.getPendingDomainID());
     }
-} 
+}
 
 void NodeList::pingPunchForDomainServer() {
     // make sure if we're here that we actually still need to ping the domain-server
@@ -655,9 +714,11 @@ void NodeList::processDomainServerConnectionTokenPacket(QSharedPointer<ReceivedM
     sendDomainServerCheckIn();
 }
 
-void NodeList::processDomainServerList(QSharedPointer<ReceivedMessage> message) {
+void NodeList::processDomainList(QSharedPointer<ReceivedMessage> message) {
 
-    // parse header information 
+    // WEBRTC TODO: Move code into packet library.  And update reference in DomainServerList.js.
+
+    // parse header information
     QDataStream packetStream(message->getMessage());
 
     // grab the domain's ID from the beginning of the packet
@@ -677,6 +738,11 @@ void NodeList::processDomainServerList(QSharedPointer<ReceivedMessage> message) 
     // pull the permissions/right/privileges for this node out of the stream
     NodePermissions newPermissions;
     packetStream >> newPermissions;
+    // FIXME: Can remove this temporary work-around in version 2021.2.0. (New protocol version implies a domain server upgrade.)
+    // Adjust our canRezAvatarEntities permissions on older domains that do not have this setting.
+    // DomainServerList and DomainSettings packets can come in either order so need to adjust with both occurrences.
+    bool adjustedPermissions = adjustCanRezAvatarEntitiesPermissions(_domainHandler.getSettingsObject(), newPermissions, false);
+
     // Is packet authentication enabled?
     bool isAuthenticated;
     packetStream >> isAuthenticated;
@@ -732,8 +798,8 @@ void NodeList::processDomainServerList(QSharedPointer<ReceivedMessage> message) 
     DependencyManager::get<NodeList>()->flagTimeForConnectionStep(LimitedNodeList::ConnectionStep::ReceiveDSList);
 
     if (_domainHandler.isConnected() && _domainHandler.getUUID() != domainUUID) {
-        // Recieved packet from different domain.
-        qWarning() << "IGNORING DomainList packet from" << domainUUID << "while connected to" 
+        // Received packet from different domain.
+        qWarning() << "IGNORING DomainList packet from" << domainUUID << "while connected to"
                    << _domainHandler.getUUID() << ": sent " << pingLagTime << " msec ago.";
         qWarning(networking) << "DomainList request lag (interface->ds): " << domainServerRequestLag << "msec";
         qWarning(networking) << "DomainList server processing time: " << domainServerCheckinProcessingTime << "usec";
@@ -759,6 +825,23 @@ void NodeList::processDomainServerList(QSharedPointer<ReceivedMessage> message) 
 
     setSessionLocalID(newLocalID);
     setSessionUUID(newUUID);
+
+    // FIXME: Remove this call to requestDomainSettings() and reinstate the one in DomainHandler::setIsConnected(), in version
+    // 2021.2.0. (New protocol version implies a domain server upgrade.)
+    if (!_domainHandler.isConnected() 
+            && _domainHandler.getScheme() == URL_SCHEME_VIRCADIA && !_domainHandler.getHostname().isEmpty()) {
+        // We're about to connect but we need the domain settings (in particular, the node permissions) in order to adjust the
+        // canRezAvatarEntities permission above before using the permissions in determining whether or not to connect without
+        // avatar entities rezzing below.
+        _domainHandler.requestDomainSettings();
+    }
+
+    // Don't continue login to the domain if have avatar entities and don't have permissions to rez them, unless user has OKed
+    // continuing login.
+    if (!newPermissions.can(NodePermissions::Permission::canRezAvatarEntities)
+            && (!adjustedPermissions || !_domainHandler.canConnectWithoutAvatarEntities())) {
+        return;
+    }
 
     // if this was the first domain-server list from this domain, we've now connected
     if (!_domainHandler.isConnected()) {
@@ -799,14 +882,19 @@ void NodeList::processDomainServerRemovedNode(QSharedPointer<ReceivedMessage> me
 void NodeList::parseNodeFromPacketStream(QDataStream& packetStream) {
     NewNodeInfo info;
 
+    SocketType publicSocketType, localSocketType;
     packetStream >> info.type
                  >> info.uuid
+                 >> publicSocketType
                  >> info.publicSocket
+                 >> localSocketType
                  >> info.localSocket
                  >> info.permissions
                  >> info.isReplicated
                  >> info.sessionLocalID
                  >> info.connectionSecretUUID;
+    info.publicSocket.setType(publicSocketType);
+    info.localSocket.setType(localSocketType);
 
     // if the public socket address is 0 then it's reachable at the same IP
     // as the domain server
@@ -842,7 +930,7 @@ void NodeList::pingPunchForInactiveNode(const SharedNodePointer& node) {
     if (node->getConnectionAttempts() > 0 && node->getConnectionAttempts() % NUM_DEBUG_CONNECTION_ATTEMPTS == 0) {
         qCDebug(networking) << "No response to UDP hole punch pings for node" << node->getUUID() << "in last 2 s.";
     }
-    
+
     auto nodeID = node->getUUID();
 
     // send the ping packet to the local and public sockets for this node
@@ -934,7 +1022,7 @@ void NodeList::sendKeepAlivePings() {
     });
 }
 
-bool NodeList::sockAddrBelongsToDomainOrNode(const HifiSockAddr& sockAddr) {
+bool NodeList::sockAddrBelongsToDomainOrNode(const SockAddr& sockAddr) {
     return _domainHandler.getSockAddr() == sockAddr || LimitedNodeList::sockAddrBelongsToNode(sockAddr);
 }
 
@@ -1139,6 +1227,10 @@ void NodeList::maybeSendIgnoreSetToNode(SharedNodePointer newNode) {
 }
 
 void NodeList::setAvatarGain(const QUuid& nodeID, float gain) {
+    if (nodeID.isNull()) {
+        _avatarGain = gain;
+    }
+
     // cannot set gain of yourself
     if (getSessionUUID() != nodeID) {
         auto audioMixer = soloNodeOfType(NodeType::AudioMixer);
@@ -1156,7 +1248,6 @@ void NodeList::setAvatarGain(const QUuid& nodeID, float gain) {
                 qCDebug(networking) << "Sending Set MASTER Avatar Gain packet with Gain:" << gain;
 
                 sendPacket(std::move(setAvatarGainPacket), *audioMixer);
-                _avatarGain = gain;
 
             } else {
                 qCDebug(networking) << "Sending Set Avatar Gain packet with UUID:" << uuidStringWithoutCurlyBraces(nodeID) << "Gain:" << gain;
@@ -1188,6 +1279,8 @@ float NodeList::getAvatarGain(const QUuid& nodeID) {
 }
 
 void NodeList::setInjectorGain(float gain) {
+    _injectorGain = gain;
+
     auto audioMixer = soloNodeOfType(NodeType::AudioMixer);
     if (audioMixer) {
         // setup the packet
@@ -1199,7 +1292,6 @@ void NodeList::setInjectorGain(float gain) {
         qCDebug(networking) << "Sending Set Injector Gain packet with Gain:" << gain;
 
         sendPacket(std::move(setInjectorGainPacket), *audioMixer);
-        _injectorGain = gain;
 
     } else {
         qWarning() << "Couldn't find audio mixer to send set gain request";
@@ -1210,17 +1302,19 @@ float NodeList::getInjectorGain() {
     return _injectorGain;
 }
 
-void NodeList::kickNodeBySessionID(const QUuid& nodeID) {
+void NodeList::kickNodeBySessionID(const QUuid& nodeID, unsigned int banFlags) {
     // send a request to domain-server to kick the node with the given session ID
     // the domain-server will handle the persistence of the kick (via username or IP)
 
     if (!nodeID.isNull() && getSessionUUID() != nodeID ) {
         if (getThisNodeCanKick()) {
             // setup the packet
-            auto kickPacket = NLPacket::create(PacketType::NodeKickRequest, NUM_BYTES_RFC4122_UUID, true);
+            auto kickPacket = NLPacket::create(PacketType::NodeKickRequest, NUM_BYTES_RFC4122_UUID + sizeof(int), true);
 
             // write the node ID to the packet
             kickPacket->write(nodeID.toRfc4122());
+            // write the ban parameters to the packet
+            kickPacket->writePrimitive(banFlags);
 
             qCDebug(networking) << "Sending packet to kick node" << uuidStringWithoutCurlyBraces(nodeID);
 
@@ -1314,4 +1408,36 @@ void NodeList::setRequestsDomainListData(bool isRequesting) {
 
 void NodeList::startThread() {
     moveToNewNamedThread(this, "NodeList Thread", QThread::TimeCriticalPriority);
+}
+
+
+// FIXME: Can remove this work-around in version 2021.2.0. (New protocol version implies a domain server upgrade.)
+bool NodeList::adjustCanRezAvatarEntitiesPermissions(const QJsonObject& domainSettingsObject,
+        NodePermissions& permissions, bool notify) {
+
+    if (domainSettingsObject.isEmpty()) {
+        // Don't have enough information to adjust yet.
+        return false;  // Failed to adjust.
+    }
+
+    const double CANREZAVATARENTITIES_INTRODUCED_VERSION = 2.5;
+    auto version = domainSettingsObject.value("version");
+    if (version.isUndefined() || version.isDouble() && version.toDouble() < CANREZAVATARENTITIES_INTRODUCED_VERSION) {
+        // On domains without the canRezAvatarEntities permission available, set it to the same as canConnectToDomain.
+        if (permissions.can(NodePermissions::Permission::canConnectToDomain)) {
+            if (!permissions.can(NodePermissions::Permission::canRezAvatarEntities)) {
+                permissions.set(NodePermissions::Permission::canRezAvatarEntities);
+                if (notify) {
+                    emit canRezAvatarEntitiesChanged(permissions.can(NodePermissions::Permission::canRezAvatarEntities));
+                }
+            }
+        }
+    }
+
+    return true;  // Successfully adjusted.
+}
+
+// FIXME: Can remove this work-around in version 2021.2.0. (New protocol version implies a domain server upgrade.)
+void NodeList::adjustCanRezAvatarEntitiesPerSettings(const QJsonObject& domainSettingsObject) {
+    adjustCanRezAvatarEntitiesPermissions(domainSettingsObject, _permissions, true);
 }

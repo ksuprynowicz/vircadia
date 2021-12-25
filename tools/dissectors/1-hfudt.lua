@@ -53,7 +53,7 @@ local message_positions = {
 
 local packet_types = {
   [0] = "Unknown",
-  [1] = "StunResponse",
+  [1] = "DomainConnectRequestPending",
   [2] = "DomainList",
   [3] = "Ping",
   [4] = "PingReply",
@@ -165,6 +165,19 @@ local unsourced_packet_types = {
   ["DomainServerConnectionToken"] = true,
   ["DomainSettingsRequest"] = true,
   ["ICEServerHeartbeatACK"] = true
+}
+
+local nonverified_packet_types = {
+    ["NodeJsonStats"] = true,
+    ["EntityQuery"] = true,
+    ["OctreeDataNack"] = true,
+    ["EntityEditNack"] = true,
+    ["DomainListRequest"] = true,
+    ["StopNode"] = true,
+    ["DomainDisconnectRequest"] = true,
+    ["UsernameFromIDRequest"] = true,
+    ["NodeKickRequest"] = true,
+    ["NodeMuteRequest"] = true,
 }
 
 local fragments = {}
@@ -304,9 +317,11 @@ function p_hfudt.dissector(buf, pinfo, tree)
       subtree:add_le(f_sender_id, sender_id)
       i = i + 2
 
-      -- read HMAC MD5 hash
-      subtree:add(f_hmac_hash, buf(i, 16))
-      i = i + 16
+    if nonverified_packet_types[packet_type_text] == nil then
+        -- read HMAC MD5 hash
+        subtree:add(f_hmac_hash, buf(i, 16))
+        i = i + 16
+        end
     end
 
     local payload_to_dissect = nil

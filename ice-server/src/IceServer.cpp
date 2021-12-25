@@ -4,6 +4,7 @@
 //
 //  Created by Stephen Birarda on 2014-10-01.
 //  Copyright 2014 High Fidelity, Inc.
+//  Copyright 2021 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -15,13 +16,16 @@
 
 #include <QtCore/QDataStream>
 #include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 #include <QtCore/QTimer>
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
+#include <QtCore/QSharedPointer>
 
 #include <LimitedNodeList.h>
 #include <NetworkAccessManager.h>
 #include <NetworkingConstants.h>
+#include <MetaverseAPI.h>
 #include <udt/PacketHeaders.h>
 #include <SharedUtil.h>
 
@@ -36,7 +40,7 @@ IceServer::IceServer(int argc, char* argv[]) :
 {
     // start the ice-server socket
     qDebug() << "ice-server socket is listening on" << ICE_SERVER_DEFAULT_PORT;
-    _serverSocket.bind(QHostAddress::AnyIPv4, ICE_SERVER_DEFAULT_PORT);
+    _serverSocket.bind(SocketType::UDP, QHostAddress::AnyIPv4, ICE_SERVER_DEFAULT_PORT);
 
     // set processPacket as the verified packet callback for the udt::Socket
     _serverSocket.setPacketHandler([this](std::unique_ptr<udt::Packet> packet) { processPacket(std::move(packet));  });
@@ -96,7 +100,7 @@ void IceServer::processPacket(std::unique_ptr<udt::Packet> packet) {
             heartbeatStream >> senderUUID;
             
             // pull the public and private sock addrs for this peer
-            HifiSockAddr publicSocket, localSocket;
+            SockAddr publicSocket, localSocket;
             heartbeatStream >> publicSocket >> localSocket;
             
             // check if this node also included a UUID that they would like to connect to
@@ -128,7 +132,7 @@ SharedNetworkPeer IceServer::addOrUpdateHeartbeatingPeer(NLPacket& packet) {
 
     // pull the UUID, public and private sock addrs for this peer
     QUuid senderUUID;
-    HifiSockAddr publicSocket, localSocket;
+    SockAddr publicSocket, localSocket;
     QByteArray signature;
 
     QDataStream heartbeatStream(&packet);
@@ -209,9 +213,16 @@ void IceServer::requestDomainPublicKey(const QUuid& domainID) {
     // send a request to the metaverse API for the public key for this domain
     auto& networkAccessManager = NetworkAccessManager::getInstance();
 
-    QUrl publicKeyURL { NetworkingConstants::METAVERSE_SERVER_URL() };
+    QUrl publicKeyURL{ MetaverseAPI::getCurrentMetaverseServerURL() };
+    // qDebug() << "publicKeyURL" << publicKeyURL;
+    // qDebug() << "MetaverseAPI::getCurrentMetaverseServerURLPath()" << MetaverseAPI::getCurrentMetaverseServerURLPath();
     QString publicKeyPath = QString("/api/v1/domains/%1/public_key").arg(uuidStringWithoutCurlyBraces(domainID));
-    publicKeyURL.setPath(publicKeyPath);
+    publicKeyURL.setPath("/" + MetaverseAPI::getCurrentMetaverseServerURLPath() + publicKeyPath);
+    // qDebug() << "publicKeyPath" << publicKeyPath;
+    // qDebug() << "publicKeyURL.setPath" << "/" + MetaverseAPI::getCurrentMetaverseServerURLPath() + publicKeyPath;
+    // qDebug() << "publicKeyURL" << publicKeyURL;
+    // qDebug() << "publicKeyURL.isValid()" << publicKeyURL.isValid();
+    // qDebug() << "publicKeyURL.errorString()" << publicKeyURL.errorString();
 
     QNetworkRequest publicKeyRequest { publicKeyURL };
     publicKeyRequest.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
@@ -280,7 +291,7 @@ void IceServer::publicKeyReplyFinished(QNetworkReply* reply) {
     reply->deleteLater();
 }
 
-void IceServer::sendPeerInformationPacket(const NetworkPeer& peer, const HifiSockAddr* destinationSockAddr) {
+void IceServer::sendPeerInformationPacket(const NetworkPeer& peer, const SockAddr* destinationSockAddr) {
     auto peerPacket = NLPacket::create(PacketType::ICEServerPeerInformation);
 
     // get the byte array for this peer

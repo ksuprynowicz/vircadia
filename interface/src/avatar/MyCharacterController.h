@@ -23,10 +23,10 @@ class DetailedMotionState;
 
 class MyCharacterController : public CharacterController {
 public:
-    explicit MyCharacterController(std::shared_ptr<MyAvatar> avatar);
+    explicit MyCharacterController(std::shared_ptr<MyAvatar> avatar, const FollowTimePerType& followTimeRemainingPerType);
     ~MyCharacterController ();
 
-    void setDynamicsWorld(btDynamicsWorld* world) override;
+    void addToWorld() override;
     void updateShapeIfNecessary() override;
 
     // Sweeping a convex shape through the physics simulation can be expensive when the obstacles are too
@@ -69,8 +69,9 @@ public:
     int32_t computeCollisionMask() const override;
     void handleChangedCollisionMask() override;
 
-    bool _collideWithOtherAvatars{ true };
     void setCollideWithOtherAvatars(bool collideWithOtherAvatars) { _collideWithOtherAvatars = collideWithOtherAvatars; }
+
+    bool needsSafeLandingSupport() const;
 
 protected:
     void initRayShotgun(const btCollisionWorld* world);
@@ -88,6 +89,7 @@ protected:
     btScalar _density { 1.0f };
 
     std::vector<DetailedMotionState*> _detailedMotionStates;
+    bool _collideWithOtherAvatars { true };
 };
 
 #endif // hifi_MyCharacterController_h

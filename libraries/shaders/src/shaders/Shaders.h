@@ -42,6 +42,8 @@ enum class Dialect
 #endif
 };
 
+extern const Dialect DEFAULT_DIALECT;
+
 const std::vector<Dialect>& allDialects();
 const std::string& dialectPath(Dialect dialect);
 
@@ -144,9 +146,6 @@ struct Source {
     // The name of the shader file, with extension, i.e. DrawColor.frag
     std::string name;
 
-    // Generic reflection, copied from the 450 dialect / mono variant
-    Reflection reflection;
-
     // Map of platforms to their specific shaders
     std::unordered_map<Dialect, DialectSource, EnumClassHash> dialectSources;
 
@@ -160,8 +159,8 @@ struct Source {
     static const Source& get(uint32_t shaderId);
 
 private:
-    // Disallow copy construction and assignment
-    Source(const Source& other) = default;
+    // Disallow copy construction
+    Source(const Source& other) = delete;
 
     static Source::Pointer loadSource(uint32_t shaderId) ;
 

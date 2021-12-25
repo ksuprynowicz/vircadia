@@ -18,6 +18,7 @@
 
 #include <NetworkLogging.h>
 #include <NetworkingConstants.h>
+#include <MetaverseAPI.h>
 #include <SharedLogging.h>
 #include <AddressManager.h>
 #include <DependencyManager.h>
@@ -48,7 +49,7 @@ ACClientApp::ACClientApp(int argc, char* argv[]) :
     parser.addOption(listenPortOption);
 
     if (!parser.parse(QCoreApplication::arguments())) {
-        qCritical() << parser.errorText() << endl;
+        qCritical() << parser.errorText() << Qt::endl;
         parser.showHelp();
         Q_UNREACHABLE();
     }
@@ -100,13 +101,13 @@ ACClientApp::ACClientApp(int argc, char* argv[]) :
 
     DependencyManager::registerInheritance<LimitedNodeList, NodeList>();
 
-    DependencyManager::set<AccountManager>([&]{ return QString("Mozilla/5.0 (HighFidelityACClient)"); });
+    DependencyManager::set<AccountManager>(false, [&]{ return QString("Mozilla/5.0 (HighFidelityACClient)"); });
     DependencyManager::set<AddressManager>();
     DependencyManager::set<NodeList>(NodeType::Agent, listenPort);
 
     auto accountManager = DependencyManager::get<AccountManager>();
     accountManager->setIsAgent(true);
-    accountManager->setAuthURL(NetworkingConstants::METAVERSE_SERVER_URL());
+    accountManager->setAuthURL(MetaverseAPI::getCurrentMetaverseServerURL());
 
     auto nodeList = DependencyManager::get<NodeList>();
 

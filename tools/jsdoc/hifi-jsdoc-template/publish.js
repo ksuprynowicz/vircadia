@@ -380,8 +380,8 @@ function buildMemberNav(items, itemHeading, itemsSeen, linktoFn) {
 
                     itemsNav += "</ul>";
                 }
-                
-                
+
+
                 itemsNav += '</li>';
                 itemsSeen[item.longname] = true;
             }
@@ -697,7 +697,7 @@ exports.publish = function(taffyData, opts, tutorials) {
     var files = find({kind: 'file'});
     var packages = find({kind: 'package'});
 
-    generate('', 'High Fidelity API Reference',
+    generate('', 'Vircadia API Reference',
         packages.concat(
             [{kind: 'mainpage', readme: opts.readme, longname: (opts.mainpagetitle) ? opts.mainpagetitle : 'Main Page'}]
         ).concat(files),

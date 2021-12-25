@@ -56,26 +56,27 @@ void InfoView::show(const QString& path, bool firstOrChangedOnly, QString urlQue
         const QString lastVersion = infoVersion.get();
         const QString version = fetchVersion(url);
         // If we have version information stored
-        if (lastVersion != QString::null) {
+        if (!lastVersion.isNull()) {
             // Check to see the document version.  If it's valid and matches
             // the stored version, we're done, so exit
-            if (version == QString::null || version == lastVersion) {
+            if (version.isNull() || version == lastVersion) {
                 return;
             }
         }
         infoVersion.set(version);
     }
-    auto offscreenUi = DependencyManager::get<OffscreenUi>();
-    QString infoViewName(NAME + "_" + path);
-    offscreenUi->show(QML, NAME + "_" + path, [=](QQmlContext* context, QObject* newObject){
-        QQuickItem* item = dynamic_cast<QQuickItem*>(newObject);
-        item->setWidth(1024);
-        item->setHeight(720);
-        InfoView* newInfoView = newObject->findChild<InfoView*>();
-        Q_ASSERT(newInfoView);
-        newInfoView->parent()->setObjectName(infoViewName);
-        newInfoView->setUrl(url);
-    });
+    if (auto offscreenUI = DependencyManager::get<OffscreenUi>()) {
+        QString infoViewName(NAME + "_" + path);
+        offscreenUI->show(QML, NAME + "_" + path, [=] (QQmlContext* context, QObject* newObject) {
+            QQuickItem* item = dynamic_cast<QQuickItem*>(newObject);
+            item->setWidth(1024);
+            item->setHeight(720);
+            InfoView* newInfoView = newObject->findChild<InfoView*>();
+            Q_ASSERT(newInfoView);
+            newInfoView->parent()->setObjectName(infoViewName);
+            newInfoView->setUrl(url);
+        });
+    }
 }
 
 QUrl InfoView::url() {

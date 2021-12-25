@@ -244,7 +244,7 @@ Item {
             color: hifi.colors.darkGray;
             MouseArea {
                 anchors.fill: parent
-                enabled: selected && pal.activeTab == "nearbyTab" && thisNameCard.userName !== "" && isPresent;
+                enabled: selected && pal.activeTab == "nearbyTab" && isPresent;
                 hoverEnabled: enabled
                 onClicked: {
                     goToUserInDomain(thisNameCard.uuid);
@@ -400,7 +400,8 @@ Item {
         size: 24;
         x: 120
         anchors.verticalCenter: nameCardConnectionInfoImage.verticalCenter
-        anchors.left: has3DHTML ? nameCardConnectionInfoText.right + 10 : avatarImage.right
+        anchors.left: has3DHTML ? nameCardConnectionInfoText.right : avatarImage.right
+        anchors.leftMargin: has3DHTML ? 10 : 0
     }
     MouseArea {
         anchors.fill:nameCardRemoveConnectionImage

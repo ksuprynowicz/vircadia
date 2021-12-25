@@ -4,6 +4,7 @@
 //
 //  Created by Kunal Gosar on 2017-03-10.
 //  Copyright 2017 High Fidelity, Inc.
+//  Copyright 2021 Vircadia contributors.
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -16,6 +17,7 @@
 
 #include <SettingHandle.h>
 #include <NetworkingConstants.h>
+#include <MetaverseAPI.h>
 #include <AccountManager.h>
 
 #include "ContextAwareProfile.h"
@@ -24,12 +26,12 @@
 
 namespace {
 
-    bool isAuthableHighFidelityURL(const QUrl& url) {
-        auto metaverseServerURL = NetworkingConstants::METAVERSE_SERVER_URL();
-        static const QStringList HF_HOSTS = {
-            "highfidelity.com", "highfidelity.io",
-            metaverseServerURL.toString(), "metaverse.highfidelity.io"
+    bool isAuthableMetaverseURL(const QUrl& url) {
+        auto metaverseServerURL = MetaverseAPI::getCurrentMetaverseServerURL();
+        static QStringList HF_HOSTS = {
+            metaverseServerURL.toString()
         };
+        HF_HOSTS << NetworkingConstants::IS_AUTHABLE_HOSTNAME;
         const auto& scheme = url.scheme();
         const auto& host = url.host();
 
@@ -63,13 +65,13 @@ namespace {
      }
 }
 
-void RequestFilters::interceptHFWebEngineRequest(QWebEngineUrlRequestInfo& info, QQmlContext* context) {
-    if (ContextAwareProfile::isRestricted(context) && blockLocalFiles(info)) {
+void RequestFilters::interceptHFWebEngineRequest(QWebEngineUrlRequestInfo& info, bool restricted) {
+    if (restricted && blockLocalFiles(info)) {
         return;
     }
 
     // check if this is a request to a highfidelity URL
-    bool isAuthable = isAuthableHighFidelityURL(info.requestUrl());
+    bool isAuthable = isAuthableMetaverseURL(info.requestUrl());
     auto accountManager = DependencyManager::get<AccountManager>();
     if (isAuthable) {
         // if we have an access token, add it to the right HTTP header for authorization
@@ -81,16 +83,9 @@ void RequestFilters::interceptHFWebEngineRequest(QWebEngineUrlRequestInfo& info,
             info.setHttpHeader(OAUTH_AUTHORIZATION_HEADER.toLocal8Bit(), bearerTokenString.toLocal8Bit());
         }
     }
-    static const QString USER_AGENT = "User-Agent";
-    const QString tokenStringMobile{ "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Mobile Safari/537.36" };
-    const QString tokenStringMetaverse{ "Chrome/48.0 (HighFidelityInterface)" };
-    const QString tokenStringLimitedCommerce{ "Chrome/48.0 (HighFidelityInterface limitedCommerce)" };
-
-    const QString tokenString = !isAuthable ? tokenStringMobile : (accountManager->getLimitedCommerce() ? tokenStringLimitedCommerce : tokenStringMetaverse);
-    info.setHttpHeader(USER_AGENT.toLocal8Bit(), tokenString.toLocal8Bit());
 }
 
-void RequestFilters::interceptFileType(QWebEngineUrlRequestInfo& info, QQmlContext* context) {
+void RequestFilters::interceptFileType(QWebEngineUrlRequestInfo& info) {
     QString filename = info.requestUrl().fileName();
     if (isScript(filename) || isJSON(filename)) {
         static const QString CONTENT_HEADER = "Accept";
