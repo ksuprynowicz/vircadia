@@ -50,15 +50,15 @@
 
 <@if not HIFI_USE_UNLIT@>
     <@if HIFI_USE_FORWARD or HIFI_USE_TRANSLUCENT@>
-        INPUT(RENDER_UTILS_ATTR_POSITION_ES, vec4 _positionES);
+        INPUT(RENDER_UTILS_ATTR_POSITION_ES, vec4, _positionES);
     <@endif@>
 <@endif@>
 <@if HIFI_USE_FADE@>
-    INPUT(RENDER_UTILS_ATTR_POSITION_WS, vec4 _positionWS);
+    INPUT(RENDER_UTILS_ATTR_POSITION_WS, vec4, _positionWS);
 <@endif@>
-INPUT(RENDER_UTILS_ATTR_NORMAL_WS vec3, _normalWS);
-INPUT(RENDER_UTILS_ATTR_COLOR vec4, _color);
-INPUT(RENDER_UTILS_ATTR_TEXCOORD01, vec4 _texCoord01);
+INPUT(RENDER_UTILS_ATTR_NORMAL_WS, vec3, _normalWS);
+INPUT(RENDER_UTILS_ATTR_COLOR, vec4, _color);
+INPUT(RENDER_UTILS_ATTR_TEXCOORD01, vec4, _texCoord01);
 #define _texCoord0 _texCoord01.xy
 #define _texCoord1 _texCoord01.zw
 

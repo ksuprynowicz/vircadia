@@ -42,6 +42,8 @@ const Dialect DEFAULT_DIALECT = Dialect::glsl410;
 
 const Dialect DEFAULT_DIALECT = Dialect::glsl450;
 
+#endif
+
 const std::vector<Dialect>& allDialects() {
     static const std::vector<Dialect> ALL_DIALECTS{ { DEFAULT_DIALECT } };
     return ALL_DIALECTS;

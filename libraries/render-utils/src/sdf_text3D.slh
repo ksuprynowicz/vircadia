@@ -14,7 +14,7 @@
 <@if not SDF_TEXT3D_SLH@>
 <@def SDF_TEXT3D_SLH@>
 
-TEXTURE(0, sampler2D, Font);
+TEXTURE(0, sampler2D, fontTexture);
 
 struct TextParams {
     vec4 color;
