@@ -468,7 +468,7 @@ void Font::drawString(gpu::Batch& batch, Font::DrawInfo& drawInfo, const QString
         gpuDrawParams.effectThickness = drawInfo.params.effectThickness;
         gpuDrawParams.effect = drawInfo.params.effect;
         if (!drawInfo.paramsBuffer) {
-            drawInfo.paramsBuffer = std::make_shared<gpu::Buffer>(sizeof(DrawParams), nullptr);
+            drawInfo.paramsBuffer = std::make_shared<gpu::Buffer>(gpu::Buffer::UniformBuffer, sizeof(DrawParams), nullptr);
         }
         drawInfo.paramsBuffer->setSubData(0, sizeof(DrawParams), (const gpu::Byte*)&gpuDrawParams);
     }
